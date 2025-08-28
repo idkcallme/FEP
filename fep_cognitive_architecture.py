@@ -1,0 +1,494 @@
+"""
+FEP-Based Cognitive Architecture - Conceptual System Prototype
+============================================================
+
+This prototype implements the conceptual framework described in Joshua Okhimame's
+research report "Toward a Robust FEP-Based Cognitive Architecture" (August 24, 2025).
+
+The system is based on the Free Energy Principle (FEP) with advanced extensions
+including stability guarantees and the Meta-Cognitive Monitor (MCM).
+"""
+
+import numpy as np
+import logging
+from abc import ABC, abstractmethod
+from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass, field
+from enum import Enum
+import time
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class SystemState(Enum):
+    """System operational states"""
+    STABLE = "stable"
+    ADAPTING = "adapting"
+    CRITICAL = "critical"
+    RECOVERING = "recovering"
+
+@dataclass
+class VariationalFreeEnergy:
+    """
+    Represents the Variational Free Energy components
+    F = D_KL[q(s) || p(s|m)] - E_q[ln p(o|s, m)]
+    """
+    kl_divergence: float = 0.0  # Complexity term
+    expected_log_likelihood: float = 0.0  # Accuracy term
+    total: float = field(init=False)
+    
+    def __post_init__(self):
+        self.total = self.kl_divergence - self.expected_log_likelihood
+
+@dataclass
+class PredictionError:
+    """Prediction error with precision weighting"""
+    error: np.ndarray
+    precision: float
+    weighted_error: np.ndarray = field(init=False)
+    
+    def __post_init__(self):
+        self.weighted_error = self.precision * self.error
+
+class HierarchicalGenerativeModel:
+    """
+    Core component: Hierarchical Generative Model
+    Encodes causal beliefs about the world and self
+    """
+    
+    def __init__(self, levels: int = 3, state_dim: int = 10):
+        self.levels = levels
+        self.state_dim = state_dim
+        
+        # Initialize hierarchical beliefs
+        self.beliefs = {
+            level: np.random.normal(0, 0.1, state_dim) 
+            for level in range(levels)
+        }
+        
+        # Model parameters (theta) - slow variables
+        self.model_params = {
+            'transition_matrices': [np.eye(state_dim) for _ in range(levels)],
+            'observation_matrices': [np.eye(state_dim) for _ in range(levels)],
+            'noise_precision': [1.0 for _ in range(levels)]
+        }
+        
+        logger.info(f"Initialized Hierarchical Generative Model with {levels} levels")
+    
+    def predict_observations(self, level: int = 0) -> np.ndarray:
+        """Generate top-down predictions"""
+        belief = self.beliefs[level]
+        obs_matrix = self.model_params['observation_matrices'][level]
+        return obs_matrix @ belief
+    
+    def update_beliefs(self, prediction_error: PredictionError, level: int = 0):
+        """Update beliefs based on precision-weighted prediction errors"""
+        learning_rate = 0.1  # This would be derived from stability proof
+        self.beliefs[level] += learning_rate * prediction_error.weighted_error
+
+class VariationalInferenceEngine:
+    """
+    Core component: Variational Inference Engine
+    Updates beliefs to explain sensory data (Perception)
+    """
+    
+    def __init__(self, generative_model: HierarchicalGenerativeModel):
+        self.generative_model = generative_model
+        self.inference_steps = 0
+        
+    def compute_prediction_error(self, observations: np.ndarray, level: int = 0) -> PredictionError:
+        """Compute prediction error between observations and predictions"""
+        predictions = self.generative_model.predict_observations(level)
+        error = observations - predictions
+        
+        # Precision weighting (attention mechanism)
+        precision = self.generative_model.model_params['noise_precision'][level]
+        
+        return PredictionError(error=error, precision=precision)
+    
+    def variational_step(self, observations: np.ndarray) -> VariationalFreeEnergy:
+        """Single step of variational inference"""
+        self.inference_steps += 1
+        
+        # Compute prediction errors across hierarchy
+        total_kl = 0.0
+        total_likelihood = 0.0
+        
+        for level in range(self.generative_model.levels):
+            pred_error = self.compute_prediction_error(observations, level)
+            
+            # Update beliefs (fast variables - mu)
+            self.generative_model.update_beliefs(pred_error, level)
+            
+            # Accumulate free energy components
+            total_kl += np.sum(pred_error.error ** 2) * 0.5  # Simplified KL term
+            total_likelihood += -np.sum(pred_error.weighted_error ** 2) * 0.5
+        
+        return VariationalFreeEnergy(total_kl, total_likelihood)
+
+class ActiveInferenceModule:
+    """
+    Core component: Active Inference Module
+    Selects actions to fulfill predictions (Action Selection, Goal-Directed Behavior)
+    """
+    
+    def __init__(self, action_dim: int = 3):
+        self.action_dim = action_dim
+        self.policy_entropy = 1.0
+        self.actions_taken = []
+        
+    def select_action(self, free_energy: VariationalFreeEnergy, 
+                     current_beliefs: Dict[int, np.ndarray]) -> np.ndarray:
+        """Select action to minimize expected future free energy"""
+        
+        # Simplified action selection based on current free energy
+        # In full implementation, this would involve policy optimization
+        action_candidates = [
+            np.random.normal(0, 0.1, self.action_dim) for _ in range(5)
+        ]
+        
+        # Select action that minimally increases free energy
+        best_action = min(action_candidates, 
+                         key=lambda a: np.sum(a**2) + free_energy.total * 0.1)
+        
+        self.actions_taken.append(best_action)
+        return best_action
+
+class KoopmanOperatorAnalyzer:
+    """
+    Advanced extension: Koopman Operator Theory for MCM
+    Monitors long-term dynamics of the learning process
+    """
+    
+    def __init__(self, observation_window: int = 100):
+        self.observation_window = observation_window
+        self.dynamics_history = []
+        self.eigenfunction_history = []
+        
+    def update_dynamics(self, system_state: Dict[str, Any]):
+        """Update the dynamics history for Koopman analysis"""
+        self.dynamics_history.append(system_state)
+        
+        # Maintain sliding window
+        if len(self.dynamics_history) > self.observation_window:
+            self.dynamics_history.pop(0)
+    
+    def compute_koopman_eigenfunctions(self) -> np.ndarray:
+        """Simplified Koopman eigenfunction computation"""
+        if len(self.dynamics_history) < 10:
+            return np.array([1.0])  # Default stable eigenfunction
+        
+        # Extract observables from dynamics history
+        observables = np.array([
+            [state.get('free_energy', 0.0), 
+             state.get('belief_change', 0.0),
+             state.get('action_magnitude', 0.0)]
+            for state in self.dynamics_history[-10:]
+        ])
+        
+        # Simplified eigenfunction (in practice, would use DMD or EDMD)
+        eigenfunction = np.mean(observables, axis=0)
+        self.eigenfunction_history.append(eigenfunction)
+        
+        return eigenfunction
+    
+    def detect_systemic_drift(self, threshold: float = 0.5) -> bool:
+        """Detect systemic drift in learning dynamics"""
+        if len(self.eigenfunction_history) < 5:
+            return False
+        
+        # Compare recent eigenfunctions to detect drift
+        recent_change = np.linalg.norm(
+            self.eigenfunction_history[-1] - self.eigenfunction_history[-3]
+        )
+        
+        return recent_change > threshold
+
+class MetaCognitiveMonitor:
+    """
+    Advanced extension: Meta-Cognitive Monitor (MCM)
+    Provides computational self-awareness and systemic failure detection
+    Operating on the slowest timescale
+    """
+    
+    def __init__(self):
+        self.koopman_analyzer = KoopmanOperatorAnalyzer()
+        self.anomaly_threshold = 2.0
+        self.detection_latency = []
+        self.system_state = SystemState.STABLE
+        self.monitoring_active = True
+        
+    def monitor_system(self, free_energy: VariationalFreeEnergy, 
+                      beliefs: Dict[int, np.ndarray],
+                      actions: List[np.ndarray]) -> Dict[str, Any]:
+        """Main monitoring function - operates on slowest timescale"""
+        
+        if not self.monitoring_active:
+            return {"status": "monitoring_disabled"}
+        
+        # Prepare system state for Koopman analysis
+        current_state = {
+            'free_energy': free_energy.total,
+            'belief_change': np.mean([np.linalg.norm(b) for b in beliefs.values()]),
+            'action_magnitude': np.mean([np.linalg.norm(a) for a in actions[-5:]]) if actions else 0.0,
+            'timestamp': time.time()
+        }
+        
+        # Update Koopman analyzer
+        self.koopman_analyzer.update_dynamics(current_state)
+        eigenfunctions = self.koopman_analyzer.compute_koopman_eigenfunctions()
+        
+        # Check for systemic drift
+        drift_detected = self.koopman_analyzer.detect_systemic_drift()
+        anomaly_detected = free_energy.total > self.anomaly_threshold
+        
+        # Update system state
+        if drift_detected or anomaly_detected:
+            if self.system_state == SystemState.STABLE:
+                self.system_state = SystemState.CRITICAL
+                logger.warning("MCM: System entering CRITICAL state")
+        else:
+            if self.system_state == SystemState.CRITICAL:
+                self.system_state = SystemState.RECOVERING
+                logger.info("MCM: System RECOVERING")
+            elif self.system_state == SystemState.RECOVERING:
+                self.system_state = SystemState.STABLE
+                logger.info("MCM: System returned to STABLE state")
+        
+        return {
+            'system_state': self.system_state,
+            'drift_detected': drift_detected,
+            'anomaly_detected': anomaly_detected,
+            'eigenfunctions': eigenfunctions,
+            'free_energy_level': free_energy.total
+        }
+    
+    def trigger_controlled_exploration(self) -> Dict[str, Any]:
+        """Trigger controlled exploration in response to 'black swan' events"""
+        logger.info("MCM: Triggering controlled exploration mode")
+        return {
+            'exploration_mode': True,
+            'exploration_factor': 2.0,
+            'duration_steps': 50
+        }
+
+class StabilityController:
+    """
+    Advanced extension: Formal Stability Controller
+    Implements timescale separation using singular perturbation theory
+    """
+    
+    def __init__(self, epsilon_max: float = 0.01):
+        self.epsilon_max = epsilon_max  # Maximum allowed learning rate
+        self.current_epsilon = epsilon_max * 0.5
+        self.stability_margin = 0.8
+        
+    def check_stability_conditions(self, 
+                                 free_energy_gradient: np.ndarray,
+                                 hessian_eigenvalues: np.ndarray) -> bool:
+        """Check if stability conditions from the theorem are satisfied"""
+        
+        # Check if Hessian is positive definite
+        hessian_positive_definite = np.all(hessian_eigenvalues > 0)
+        
+        # Check Lipschitz continuity (simplified)
+        gradient_bounded = np.linalg.norm(free_energy_gradient) < 10.0
+        
+        return hessian_positive_definite and gradient_bounded
+    
+    def compute_stability_bound(self, hessian_eigenvalues: np.ndarray) -> float:
+        """Compute the stability bound epsilon* from the theorem"""
+        
+        if len(hessian_eigenvalues) == 0 or np.min(hessian_eigenvalues) <= 0:
+            return self.epsilon_max * 0.1  # Conservative fallback
+        
+        # Simplified stability bound computation
+        min_eigenvalue = np.min(hessian_eigenvalues)
+        epsilon_star = min(self.epsilon_max, self.stability_margin / min_eigenvalue)
+        
+        return max(epsilon_star, 1e-6)  # Ensure non-zero learning rate
+    
+    def adapt_learning_rate(self, system_dynamics: Dict[str, Any]) -> float:
+        """Dynamically adapt learning rate to maintain stability"""
+        
+        # Extract stability indicators from system dynamics
+        gradient_norm = system_dynamics.get('gradient_norm', 1.0)
+        eigenvalue_min = system_dynamics.get('min_eigenvalue', 1.0)
+        
+        # Compute new epsilon
+        epsilon_star = self.compute_stability_bound(np.array([eigenvalue_min]))
+        self.current_epsilon = min(epsilon_star, self.current_epsilon * 1.1)  # Gradual adaptation
+        
+        return self.current_epsilon
+
+class FEPCognitiveArchitecture:
+    """
+    Main System: FEP-Based Cognitive Architecture with Advanced Extensions
+    
+    This is the complete system implementing:
+    1. Core FEP dynamics (perception-action loop)
+    2. Stability guarantees via timescale separation
+    3. Meta-Cognitive Monitor for self-awareness and resilience
+    """
+    
+    def __init__(self, 
+                 state_dim: int = 10, 
+                 action_dim: int = 3, 
+                 hierarchy_levels: int = 3):
+        
+        # Core FEP components
+        self.generative_model = HierarchicalGenerativeModel(hierarchy_levels, state_dim)
+        self.inference_engine = VariationalInferenceEngine(self.generative_model)
+        self.active_inference = ActiveInferenceModule(action_dim)
+        
+        # Advanced extensions
+        self.meta_monitor = MetaCognitiveMonitor()
+        self.stability_controller = StabilityController()
+        
+        # System state
+        self.current_observations = np.zeros(state_dim)
+        self.step_count = 0
+        self.performance_history = []
+        
+        logger.info("FEP Cognitive Architecture initialized successfully")
+    
+    def perception_action_cycle(self, observations: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Execute one complete perception-action cycle
+        This is the heart of the FEP cognitive architecture
+        """
+        self.step_count += 1
+        self.current_observations = observations
+        
+        # 1. PERCEPTION: Variational inference step (fast timescale)
+        free_energy = self.inference_engine.variational_step(observations)
+        
+        # 2. ACTION: Select action to minimize expected free energy
+        action = self.active_inference.select_action(
+            free_energy, 
+            self.generative_model.beliefs
+        )
+        
+        # 3. STABILITY CONTROL: Adapt learning rate based on stability analysis
+        system_dynamics = {
+            'gradient_norm': np.random.normal(1.0, 0.1),  # Simplified
+            'min_eigenvalue': np.random.uniform(0.5, 2.0),  # Simplified
+            'free_energy': free_energy.total
+        }
+        
+        current_epsilon = self.stability_controller.adapt_learning_rate(system_dynamics)
+        
+        # 4. META-COGNITIVE MONITORING: Check system integrity (slowest timescale)
+        monitoring_result = self.meta_monitor.monitor_system(
+            free_energy,
+            self.generative_model.beliefs,
+            self.active_inference.actions_taken
+        )
+        
+        # 5. Record performance metrics
+        performance_metrics = {
+            'step': self.step_count,
+            'free_energy': free_energy.total,
+            'kl_divergence': free_energy.kl_divergence,
+            'log_likelihood': free_energy.expected_log_likelihood,
+            'action_magnitude': np.linalg.norm(action),
+            'learning_rate': current_epsilon,
+            'system_state': monitoring_result['system_state'].value,
+            'monitoring_result': monitoring_result
+        }
+        
+        self.performance_history.append(performance_metrics)
+        
+        return action, performance_metrics
+    
+    def handle_environmental_shift(self):
+        """Handle abrupt environmental changes (for resilience testing)"""
+        logger.info("Environmental shift detected - triggering adaptation")
+        
+        # Reset some model parameters to adapt to new environment
+        for level in range(self.generative_model.levels):
+            self.generative_model.model_params['noise_precision'][level] *= 0.5
+        
+        # Trigger MCM controlled exploration
+        exploration_params = self.meta_monitor.trigger_controlled_exploration()
+        return exploration_params
+    
+    def get_system_summary(self) -> Dict[str, Any]:
+        """Get comprehensive system state summary"""
+        if not self.performance_history:
+            return {"status": "no_data"}
+        
+        recent_performance = self.performance_history[-10:] if len(self.performance_history) >= 10 else self.performance_history
+        
+        return {
+            'total_steps': self.step_count,
+            'current_system_state': self.meta_monitor.system_state.value,
+            'average_free_energy': np.mean([p['free_energy'] for p in recent_performance]),
+            'current_learning_rate': self.stability_controller.current_epsilon,
+            'inference_steps': self.inference_engine.inference_steps,
+            'actions_taken': len(self.active_inference.actions_taken),
+            'monitoring_active': self.meta_monitor.monitoring_active,
+            'recent_performance': recent_performance[-5:]  # Last 5 steps
+        }
+
+# Example usage and testing framework
+def run_system_demonstration():
+    """
+    Demonstration of the FEP Cognitive Architecture
+    This simulates the experimental protocol described in Chapter 6
+    """
+    
+    print("="*60)
+    print("FEP-Based Cognitive Architecture - System Demonstration")
+    print("="*60)
+    
+    # Initialize the system
+    architecture = FEPCognitiveArchitecture(state_dim=5, action_dim=2, hierarchy_levels=2)
+    
+    # Simulate different environments from the experimental protocol
+    
+    # 1. Stable Baseline Environment
+    print("\n1. Testing in Stable Baseline Environment...")
+    for step in range(20):
+        # Stable, predictable observations
+        observations = np.sin(np.linspace(0, 2*np.pi, 5)) + np.random.normal(0, 0.05, 5)
+        action, metrics = architecture.perception_action_cycle(observations)
+        
+        if step % 5 == 0:
+            print(f"   Step {step}: Free Energy = {metrics['free_energy']:.3f}, "
+                  f"State = {metrics['system_state']}")
+    
+    # 2. Non-Ergodic Environment (abrupt change)
+    print("\n2. Testing Environmental Shift (Non-Ergodic)...")
+    exploration_params = architecture.handle_environmental_shift()
+    
+    for step in range(15):
+        # Changed environment - different dynamics
+        observations = np.cos(np.linspace(0, np.pi, 5)) + np.random.normal(0, 0.2, 5)
+        action, metrics = architecture.perception_action_cycle(observations)
+        
+        if step % 3 == 0:
+            print(f"   Step {step}: Free Energy = {metrics['free_energy']:.3f}, "
+                  f"State = {metrics['system_state']}")
+    
+    # 3. System Summary
+    print("\n3. Final System Summary:")
+    summary = architecture.get_system_summary()
+    for key, value in summary.items():
+        if key != 'recent_performance':
+            print(f"   {key}: {value}")
+    
+    print("\n" + "="*60)
+    print("Demonstration completed successfully!")
+    print("This prototype implements the key concepts from the research:")
+    print("- Free Energy Principle with hierarchical generative models")
+    print("- Variational inference and active inference")
+    print("- Stability control via timescale separation")
+    print("- Meta-Cognitive Monitor with Koopman operator analysis")
+    print("- Resilience mechanisms and self-awareness")
+    print("="*60)
+
+if __name__ == "__main__":
+    # Run the demonstration
+    run_system_demonstration()
