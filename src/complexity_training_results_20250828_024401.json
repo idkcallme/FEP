@@ -1,0 +1,41 @@
+{
+  "training_config": {
+    "num_training_epochs": 20,
+    "learning_rate": 0.001,
+    "complexity_weight": 2.0,
+    "state_dim": 10,
+    "action_dim": 10,
+    "hierarchy_levels": 4,
+    "adaptive_precision": true,
+    "critical_state_boost": 1.5,
+    "precision_decay": 0.95,
+    "eval_frequency": 10,
+    "save_checkpoints": true
+  },
+  "training_time_seconds": 0.020760297775268555,
+  "final_evaluation": {
+    "epoch": 20,
+    "simple_falsehood_avg_vfe": 0.3413988806645367,
+    "complex_truth_avg_vfe": 0.13554329309810878,
+    "vfe_difference": -0.20585558756642794,
+    "complexity_appreciation": false
+  },
+  "training_history": [
+    {
+      "epoch": 0,
+      "simple_falsehood_avg_vfe": 2.343613433857019,
+      "complex_truth_avg_vfe": 1.541021848248522,
+      "vfe_difference": -0.8025915856084971,
+      "complexity_appreciation": false
+    },
+    {
+      "epoch": 10,
+      "simple_falsehood_avg_vfe": 0.3449480189729947,
+      "complex_truth_avg_vfe": 0.21536758347037596,
+      "vfe_difference": -0.12958043550261875,
+      "complexity_appreciation": false
+    }
+  ],
+  "improvement_achieved": false,
+  "complexity_learning_rate": -0.010292779378321397
+}
