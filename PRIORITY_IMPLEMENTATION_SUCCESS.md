@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 **PRIORITY 1: "LAZY STUDENT" PROBLEM - ✅ SOLVED**
+##  **PRIORITY 1: "LAZY STUDENT" PROBLEM -  SOLVED**
 
 ### **🧠 Complexity Training Results:**
 ```
