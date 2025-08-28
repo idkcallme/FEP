@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Model files (regenerated)
+*.pkl
+*.joblib
+*.model
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Data files (keep structure but ignore large data)
+data/*.csv
+data/*.json
+!data/csc_training_dataset.json
+!data/csc_training_dataset_v2.json
+
+# Reports (keep examples but ignore generated)
+reports/*.json
+reports/*.png
+!reports/README.md
+
+# Project specific
+mouse_prediction_ai/
+fep_cognitive_lib/
+PROJECT_REVIEW_COPY/
+*.pdf

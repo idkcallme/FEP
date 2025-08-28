@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""
+🚀 LIVE DATASET GENERATOR
+========================
+Professional closed-loop ML training pipeline.
+Generates real cognitive signatures from actual FEP-MCM processing.
+
+This bridges the gap from simulation to reality by capturing
+the actual 19-dimensional cognitive feature vectors produced
+by your system when processing labeled examples.
+
+💡 Usage: python generate_live_dataset.py
+"""
+
+import json
+import csv
+import sys
+import os
+import numpy as np
+
+# Add src directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+from calibrated_security_system import CalibratedSecuritySystem
+
+def generate_live_dataset():
+    """
+    Generates a live training dataset by running labeled examples through
+    the actual FEP-MCM system and capturing the real cognitive signatures.
+    """
+    print("🚀 LIVE DATASET GENERATION")
+    print("=" * 30)
+    print("🎯 Moving from simulation to reality...")
+    
+    # 1. Initialize the system that will generate the data
+    print("   📡 Initializing Calibrated FEP-MCM System...")
+    system = CalibratedSecuritySystem()
+    
+    # 2. Load the source prompts and labels  
+    dataset_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'csc_training_dataset_v2.json')
+    print(f"   📂 Loading prompts from {dataset_path}...")
+    with open(dataset_path, 'r', encoding='utf-8') as f:
+        dataset = json.load(f)
+        
+    output_csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'csc_live_training_data.csv')
+    print(f"   💾 Writing real cognitive signatures to {output_csv_path}...")
+    
+    # 3. Prepare the output CSV file
+    feature_names = system.csc.feature_names
+    header = feature_names + ['label']
+    
+    total_examples = sum(len(examples) for examples in dataset.values())
+    processed_count = 0
+    
+    with open(output_csv_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(header)  # Write the header row
+        
+        # 4. Process each example and capture real cognitive state
+        for label, examples in dataset.items():
+            print(f"\n   🧠 Processing {label}: {len(examples)} examples")
+            for text in examples:
+                # KEY STEP: Process through actual FEP-MCM system
+                result = system.process_text_with_calibrated_security(text)
+                
+                # Extract real cognitive features (not simulated!)
+                # The method generates base_result internally
+                # We need to extract from the process method directly
+                
+                # Get the base system result by mimicking the process method
+                pcad_result = result['pcad_result']
+                clean_text = pcad_result['clean_text']
+                observation = system._text_to_observation(clean_text)
+                base_result = system.base_system.step(observation)
+                
+                fep_output = base_result['fep_output']
+                
+                # Use CSC's feature extraction on REAL data
+                feature_vector = system.csc.extract_cognitive_features(
+                    result['adjusted_vfe'],
+                    fep_output['policy_entropy'],
+                    fep_output['reconstruction_error'],
+                    fep_output['kl_divergence'],
+                    fep_output['latent_state'],
+                    len(text)
+                )
+                
+                # Write real feature vector + correct label
+                row = list(feature_vector) + [label]
+                writer.writerow(row)
+                
+                processed_count += 1
+                if processed_count % 10 == 0:
+                    print(f"     ✅ {processed_count}/{total_examples} signatures captured")
+
+    print(f"\n🎉 SUCCESS! Live training dataset generated:")
+    print(f"   📄 File: {output_csv_path}")
+    print(f"   📊 Total examples: {processed_count}")
+    print(f"   🧠 Features per example: {len(feature_names)}")
+    print(f"   🏷️ Categories: {list(dataset.keys())}")
+    print("\n🔄 Ready for real CSC training!")
+
+if __name__ == "__main__":
+    generate_live_dataset()

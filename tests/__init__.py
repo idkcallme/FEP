@@ -1,0 +1,14 @@
+"""
+FEP-MCM Test Suite
+==================
+
+Comprehensive testing and validation for the FEP-MCM cognitive security architecture.
+
+Test Categories:
+- Architecture tests: Core FEP implementation validation
+- Security tests: Threat detection and response testing
+- Performance tests: Resource usage and speed benchmarks
+- Integration tests: End-to-end system validation
+"""
+
+__version__ = "1.0.0"

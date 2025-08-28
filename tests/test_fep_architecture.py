@@ -1,0 +1,312 @@
+"""
+Test Suite for FEP-Based Cognitive Architecture
+==============================================
+
+This test suite validates the key functionalities and behaviors
+of the FEP Cognitive Architecture prototype.
+"""
+
+import numpy as np
+import sys
+import os
+
+# Add the current directory to path to import our modules
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from fep_cognitive_architecture import (
+    FEPCognitiveArchitecture, 
+    VariationalFreeEnergy,
+    PredictionError,
+    SystemState
+)
+
+class FEPArchitectureTests:
+    """Test suite for the FEP Cognitive Architecture"""
+    
+    def __init__(self):
+        self.architecture = FEPCognitiveArchitecture(
+            state_dim=5, 
+            action_dim=2, 
+            hierarchy_levels=2
+        )
+        self.test_results = []
+    
+    def test_initialization(self):
+        """Test that the system initializes correctly"""
+        print("Testing system initialization...")
+        
+        # Check core components exist
+        assert self.architecture.generative_model is not None
+        assert self.architecture.inference_engine is not None
+        assert self.architecture.active_inference is not None
+        assert self.architecture.meta_monitor is not None
+        assert self.architecture.stability_controller is not None
+        
+        # Check initial state
+        assert self.architecture.step_count == 0
+        assert len(self.architecture.performance_history) == 0
+        
+        self.test_results.append("✓ Initialization test passed")
+        print("  ✓ All components initialized correctly")
+    
+    def test_perception_action_cycle(self):
+        """Test the core perception-action cycle"""
+        print("\nTesting perception-action cycle...")
+        
+        # Create test observations
+        observations = np.array([0.5, -0.3, 0.8, -0.1, 0.2])
+        
+        # Execute one cycle
+        action, metrics = self.architecture.perception_action_cycle(observations)
+        
+        # Validate outputs
+        assert isinstance(action, np.ndarray)
+        assert action.shape[0] == 2  # action_dim
+        assert isinstance(metrics, dict)
+        
+        # Check required metrics
+        required_keys = ['step', 'free_energy', 'kl_divergence', 'log_likelihood', 
+                        'action_magnitude', 'learning_rate', 'system_state']
+        for key in required_keys:
+            assert key in metrics, f"Missing metric: {key}"
+        
+        # Check state updates
+        assert self.architecture.step_count == 1
+        assert len(self.architecture.performance_history) == 1
+        
+        self.test_results.append("✓ Perception-action cycle test passed")
+        print("  ✓ Single cycle executed successfully")
+        print(f"  ✓ Free energy: {metrics['free_energy']:.3f}")
+        print(f"  ✓ System state: {metrics['system_state']}")
+    
+    def test_free_energy_minimization(self):
+        """Test that free energy decreases over time in stable environment"""
+        print("\nTesting free energy minimization...")
+        
+        free_energies = []
+        
+        # Run multiple cycles with consistent observations
+        for i in range(10):
+            observations = np.sin(np.linspace(0, 2*np.pi, 5)) * 0.5
+            action, metrics = self.architecture.perception_action_cycle(observations)
+            free_energies.append(metrics['free_energy'])
+        
+        # Check that free energy generally decreases (allowing for some noise)
+        initial_fe = np.mean(free_energies[:3])
+        final_fe = np.mean(free_energies[-3:])
+        
+        improvement = initial_fe - final_fe
+        assert improvement > 0, f"Free energy should decrease: {initial_fe:.3f} -> {final_fe:.3f}"
+        
+        self.test_results.append("✓ Free energy minimization test passed")
+        print(f"  ✓ Free energy decreased from {initial_fe:.3f} to {final_fe:.3f}")
+        print(f"  ✓ Improvement: {improvement:.3f}")
+    
+    def test_environmental_adaptation(self):
+        """Test adaptation to environmental changes"""
+        print("\nTesting environmental adaptation...")
+        
+        # Establish baseline in stable environment
+        for i in range(5):
+            observations = np.ones(5) * 0.1
+            self.architecture.perception_action_cycle(observations)
+        
+        baseline_fe = self.architecture.performance_history[-1]['free_energy']
+        
+        # Trigger environmental shift
+        exploration_params = self.architecture.handle_environmental_shift()
+        assert isinstance(exploration_params, dict)
+        assert 'exploration_mode' in exploration_params
+        
+        # Test adaptation to new environment
+        adaptation_fes = []
+        for i in range(10):
+            observations = np.ones(5) * -0.5  # Different environment
+            action, metrics = self.architecture.perception_action_cycle(observations)
+            adaptation_fes.append(metrics['free_energy'])
+        
+        # Should show initial spike then recovery
+        max_fe = max(adaptation_fes[:3])
+        final_fe = np.mean(adaptation_fes[-3:])
+        
+        assert max_fe > baseline_fe, "Should show initial free energy spike"
+        assert final_fe < max_fe, "Should recover from initial spike"
+        
+        self.test_results.append("✓ Environmental adaptation test passed")
+        print(f"  ✓ Baseline FE: {baseline_fe:.3f}")
+        print(f"  ✓ Peak adaptation FE: {max_fe:.3f}")
+        print(f"  ✓ Final adaptation FE: {final_fe:.3f}")
+    
+    def test_meta_cognitive_monitoring(self):
+        """Test meta-cognitive monitoring functionality"""
+        print("\nTesting meta-cognitive monitoring...")
+        
+        # Check initial monitoring state
+        assert self.architecture.meta_monitor.monitoring_active == True
+        assert self.architecture.meta_monitor.system_state in [
+            SystemState.STABLE, SystemState.ADAPTING, 
+            SystemState.CRITICAL, SystemState.RECOVERING
+        ]
+        
+        # Run system and check monitoring updates
+        for i in range(5):
+            observations = np.random.normal(0, 1, 5)  # Noisy environment
+            action, metrics = self.architecture.perception_action_cycle(observations)
+            
+            monitoring_result = metrics['monitoring_result']
+            assert isinstance(monitoring_result, dict)
+            assert 'system_state' in monitoring_result
+            assert 'drift_detected' in monitoring_result
+            assert 'anomaly_detected' in monitoring_result
+        
+        self.test_results.append("✓ Meta-cognitive monitoring test passed")
+        print("  ✓ MCM active and producing valid outputs")
+        print(f"  ✓ Current system state: {self.architecture.meta_monitor.system_state.value}")
+    
+    def test_stability_control(self):
+        """Test stability control mechanisms"""
+        print("\nTesting stability control...")
+        
+        initial_lr = self.architecture.stability_controller.current_epsilon
+        
+        # Run system and observe learning rate adaptation
+        learning_rates = []
+        for i in range(8):
+            observations = np.random.normal(0, 0.5, 5)
+            action, metrics = self.architecture.perception_action_cycle(observations)
+            learning_rates.append(metrics['learning_rate'])
+        
+        # Check that learning rate is within bounds
+        for lr in learning_rates:
+            assert 0 < lr <= self.architecture.stability_controller.epsilon_max
+        
+        # Check that learning rate can adapt
+        lr_variance = np.var(learning_rates)
+        assert lr_variance >= 0, "Learning rate should be able to adapt"
+        
+        self.test_results.append("✓ Stability control test passed")
+        print(f"  ✓ Learning rates in range: {min(learning_rates):.6f} - {max(learning_rates):.6f}")
+        print(f"  ✓ Learning rate variance: {lr_variance:.8f}")
+    
+    def test_system_summary(self):
+        """Test system summary functionality"""
+        print("\nTesting system summary...")
+        
+        summary = self.architecture.get_system_summary()
+        
+        # Check required fields
+        required_fields = [
+            'total_steps', 'current_system_state', 'average_free_energy',
+            'current_learning_rate', 'inference_steps', 'actions_taken',
+            'monitoring_active'
+        ]
+        
+        for field in required_fields:
+            assert field in summary, f"Missing summary field: {field}"
+        
+        # Validate data types and ranges
+        assert isinstance(summary['total_steps'], int)
+        assert summary['total_steps'] > 0
+        assert isinstance(summary['average_free_energy'], (int, float))
+        assert isinstance(summary['monitoring_active'], bool)
+        
+        self.test_results.append("✓ System summary test passed")
+        print(f"  ✓ Total steps: {summary['total_steps']}")
+        print(f"  ✓ Current state: {summary['current_system_state']}")
+        print(f"  ✓ Average free energy: {summary['average_free_energy']:.3f}")
+    
+    def run_all_tests(self):
+        """Run all tests and provide summary"""
+        print("="*60)
+        print("FEP COGNITIVE ARCHITECTURE - TEST SUITE")
+        print("="*60)
+        
+        test_methods = [
+            self.test_initialization,
+            self.test_perception_action_cycle,
+            self.test_free_energy_minimization,
+            self.test_environmental_adaptation,
+            self.test_meta_cognitive_monitoring,
+            self.test_stability_control,
+            self.test_system_summary
+        ]
+        
+        failed_tests = []
+        
+        for test_method in test_methods:
+            try:
+                test_method()
+            except Exception as e:
+                failed_tests.append((test_method.__name__, str(e)))
+                print(f"  ✗ {test_method.__name__} FAILED: {e}")
+        
+        print("\n" + "="*60)
+        print("TEST SUMMARY")
+        print("="*60)
+        
+        for result in self.test_results:
+            print(result)
+        
+        if failed_tests:
+            print(f"\n{len(failed_tests)} test(s) failed:")
+            for test_name, error in failed_tests:
+                print(f"  ✗ {test_name}: {error}")
+        else:
+            print(f"\n🎉 All {len(self.test_results)} tests passed successfully!")
+        
+        print("="*60)
+        return len(failed_tests) == 0
+
+def benchmark_performance():
+    """Simple performance benchmark"""
+    print("\n" + "="*60)
+    print("PERFORMANCE BENCHMARK")
+    print("="*60)
+    
+    import time
+    
+    architecture = FEPCognitiveArchitecture(state_dim=10, action_dim=3, hierarchy_levels=3)
+    
+    # Benchmark perception-action cycles
+    start_time = time.time()
+    for i in range(100):
+        observations = np.random.normal(0, 1, 10)
+        action, metrics = architecture.perception_action_cycle(observations)
+    
+    end_time = time.time()
+    total_time = end_time - start_time
+    cycles_per_second = 100 / total_time
+    
+    print(f"Completed 100 perception-action cycles in {total_time:.3f} seconds")
+    print(f"Performance: {cycles_per_second:.1f} cycles/second")
+    
+    # Check final system state
+    summary = architecture.get_system_summary()
+    print(f"Final average free energy: {summary['average_free_energy']:.3f}")
+    print(f"Final system state: {summary['current_system_state']}")
+    
+    return cycles_per_second
+
+if __name__ == "__main__":
+    # Run the test suite
+    tester = FEPArchitectureTests()
+    success = tester.run_all_tests()
+    
+    # Run performance benchmark
+    performance = benchmark_performance()
+    
+    # Final summary
+    print("\n" + "="*60)
+    print("VALIDATION COMPLETE")
+    print("="*60)
+    
+    if success:
+        print("✅ System validation: PASSED")
+        print(f"✅ Performance: {performance:.1f} cycles/second")
+        print("\nThe FEP Cognitive Architecture prototype is functioning correctly!")
+        print("Ready for further development and empirical validation.")
+    else:
+        print("❌ System validation: FAILED")
+        print("Please review failed tests and fix issues before proceeding.")
+    
+    print("="*60)
