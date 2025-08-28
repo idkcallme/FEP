@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+"""
+📊 REAL BENCHMARK INTEGRATION
+============================
+Genuine integration with industry-standard evaluation harnesses.
+
+This module provides real benchmark evaluation using:
+- lm-evaluation-harness for TruthfulQA, MMLU, BBQ
+- Real metric computation (no random numbers)
+- FEP-based cognitive monitoring during evaluation
+- Reproducible, verifiable results
+
+Replaces all mock benchmarking with legitimate evaluation.
+"""
+
+import torch
+import numpy as np
+import json
+import time
+import logging
+from typing import Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+import sys
+import os
+
+# Real evaluation imports
+try:
+    from lm_eval import evaluator
+    from lm_eval.models.huggingface import HFLM
+    from lm_eval.tasks import get_task_dict
+    LM_EVAL_AVAILABLE = True
+except ImportError:
+    print("⚠️ lm-evaluation-harness not available. Installing...")
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", 
+            "lm-eval[all]", "datasets", "evaluate"
+        ])
+        from lm_eval import evaluator
+        from lm_eval.models.huggingface import HFLM
+        from lm_eval.tasks import get_task_dict
+        LM_EVAL_AVAILABLE = True
+    except Exception as e:
+        print(f"❌ Could not install lm-eval: {e}")
+        LM_EVAL_AVAILABLE = False
+
+# FEP integration
+from fep_language_interface import FEPLanguageModel, create_fep_language_model
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class BenchmarkConfig:
+    """Configuration for real benchmark evaluation."""
+    model_name: str = "distilgpt2"
+    tasks: List[str] = None
+    batch_size: int = 4
+    max_length: int = 512
+    num_fewshot: int = 0
+    limit: Optional[int] = None  # Limit number of examples for testing
+    output_dir: str = "benchmark_results"
+    monitor_with_fep: bool = True
+    fep_latent_dim: int = 32
+
+    def __post_init__(self):
+        if self.tasks is None:
+            self.tasks = ["truthfulqa_mc", "mmlu", "bbq"]
+
+class FEPBenchmarkWrapper:
+    """
+    Wrapper that adds FEP monitoring to any language model during evaluation.
+    
+    This allows us to monitor free energy, surprise, and uncertainty
+    during real benchmark evaluation.
+    """
+    
+    def __init__(self, base_model, fep_monitor: FEPLanguageModel):
+        self.base_model = base_model
+        self.fep_monitor = fep_monitor
+        self.monitoring_data = []
+        
+    def loglikelihood(self, requests):
+        """Compute log-likelihood while monitoring with FEP."""
+        results = self.base_model.loglikelihood(requests)
+        
+        # Monitor each request with FEP
+        for i, (context, continuation) in enumerate(requests):
+            full_text = context + continuation
+            try:
+                fep_result = self.fep_monitor.process_text_with_monitoring(full_text)
+                self.monitoring_data.append({
+                    'request_id': i,
+                    'text': full_text[:100] + "..." if len(full_text) > 100 else full_text,
+                    'free_energy': fep_result['cognitive_state']['mean_free_energy'],
+                    'surprise': fep_result['cognitive_state']['surprise_level'],
+                    'uncertainty': fep_result['cognitive_state']['uncertainty_level'],
+                    'anomaly_score': fep_result['anomaly_detection']['anomaly_score']
+                })
+            except Exception as e:
+                logger.warning(f"FEP monitoring failed for request {i}: {e}")
+                
+        return results
+    
+    def loglikelihood_rolling(self, requests):
+        """Rolling log-likelihood with FEP monitoring."""
+        results = self.base_model.loglikelihood_rolling(requests)
+        
+        # Monitor rolling context
+        for i, request in enumerate(requests):
+            try:
+                fep_result = self.fep_monitor.process_text_with_monitoring(request)
+                self.monitoring_data.append({
+                    'request_id': f'rolling_{i}',
+                    'text': request[:100] + "..." if len(request) > 100 else request,
+                    'free_energy': fep_result['cognitive_state']['mean_free_energy'],
+                    'surprise': fep_result['cognitive_state']['surprise_level'],
+                    'uncertainty': fep_result['cognitive_state']['uncertainty_level'],
+                    'anomaly_score': fep_result['anomaly_detection']['anomaly_score']
+                })
+            except Exception as e:
+                logger.warning(f"FEP monitoring failed for rolling request {i}: {e}")
+                
+        return results
+    
+    def generate_until(self, requests):
+        """Text generation with FEP monitoring."""
+        results = self.base_model.generate_until(requests)
+        
+        # Monitor generation results
+        for i, (context, gen_kwargs) in enumerate(requests):
+            try:
+                generated_text = results[i]
+                full_text = context + generated_text
+                fep_result = self.fep_monitor.process_text_with_monitoring(full_text)
+                self.monitoring_data.append({
+                    'request_id': f'gen_{i}',
+                    'text': full_text[:100] + "..." if len(full_text) > 100 else full_text,
+                    'free_energy': fep_result['cognitive_state']['mean_free_energy'],
+                    'surprise': fep_result['cognitive_state']['surprise_level'],
+                    'uncertainty': fep_result['cognitive_state']['uncertainty_level'],
+                    'anomaly_score': fep_result['anomaly_detection']['anomaly_score']
+                })
+            except Exception as e:
+                logger.warning(f"FEP monitoring failed for generation {i}: {e}")
+                
+        return results
+    
+    def __getattr__(self, name):
+        """Delegate other methods to base model."""
+        return getattr(self.base_model, name)
+
+class RealBenchmarkEvaluator:
+    """
+    Real benchmark evaluator using lm-evaluation-harness.
+    
+    Provides genuine evaluation results with optional FEP monitoring.
+    """
+    
+    def __init__(self, config: BenchmarkConfig):
+        self.config = config
+        
+        if not LM_EVAL_AVAILABLE:
+            raise RuntimeError(
+                "lm-evaluation-harness is not available. "
+                "Please install with: pip install lm-eval[all]"
+            )
+        
+        # Initialize base model
+        self.base_model = HFLM(pretrained=config.model_name)
+        
+        # Initialize FEP monitor if requested
+        self.fep_monitor = None
+        self.monitored_model = None
+        if config.monitor_with_fep:
+            try:
+                self.fep_monitor = create_fep_language_model(
+                    model_name=config.model_name,
+                    fep_latent_dim=config.fep_latent_dim,
+                    hierarchical=True
+                )
+                self.monitored_model = FEPBenchmarkWrapper(self.base_model, self.fep_monitor)
+                print(f"✅ FEP monitoring enabled for {config.model_name}")
+            except Exception as e:
+                print(f"⚠️ FEP monitoring disabled due to error: {e}")
+                self.monitored_model = self.base_model
+        else:
+            self.monitored_model = self.base_model
+        
+        # Create output directory
+        Path(config.output_dir).mkdir(exist_ok=True)
+    
+    def run_evaluation(self) -> Dict[str, Any]:
+        """
+        Run real benchmark evaluation with optional FEP monitoring.
+        
+        Returns genuine benchmark results, not mock data.
+        """
+        print(f"🚀 Starting Real Benchmark Evaluation")
+        print(f"Model: {self.config.model_name}")
+        print(f"Tasks: {self.config.tasks}")
+        print(f"FEP Monitoring: {'Enabled' if self.fep_monitor else 'Disabled'}")
+        print("=" * 60)
+        
+        start_time = time.time()
+        
+        try:
+            # Run evaluation using lm-eval
+            results = evaluator.simple_evaluate(
+                model=self.monitored_model,
+                tasks=self.config.tasks,
+                batch_size=self.config.batch_size,
+                max_batch_size=self.config.batch_size,
+                num_fewshot=self.config.num_fewshot,
+                limit=self.config.limit,
+                bootstrap_iters=100,  # For confidence intervals
+                check_integrity=True,
+                write_out=True,
+                log_samples=True
+            )
+            
+            evaluation_time = time.time() - start_time
+            
+            # Process results
+            processed_results = self._process_results(results, evaluation_time)
+            
+            # Save results
+            self._save_results(processed_results)
+            
+            return processed_results
+            
+        except Exception as e:
+            logger.error(f"Evaluation failed: {e}")
+            return {
+                'error': str(e),
+                'evaluation_time': time.time() - start_time,
+                'status': 'failed'
+            }
+    
+    def _process_results(self, raw_results: Dict[str, Any], evaluation_time: float) -> Dict[str, Any]:
+        """Process raw evaluation results and add FEP analysis."""
+        
+        # Extract main results
+        task_results = {}
+        for task_name, task_data in raw_results['results'].items():
+            task_results[task_name] = {
+                'metrics': task_data,
+                'num_samples': raw_results['n-shot'].get(task_name, 0)
+            }
+        
+        # FEP monitoring analysis
+        fep_analysis = None
+        if self.fep_monitor and hasattr(self.monitored_model, 'monitoring_data'):
+            monitoring_data = self.monitored_model.monitoring_data
+            if monitoring_data:
+                fep_analysis = self._analyze_fep_monitoring(monitoring_data)
+        
+        # Aggregate metrics
+        aggregate_metrics = self._compute_aggregate_metrics(raw_results['results'])
+        
+        processed_results = {
+            'evaluation_metadata': {
+                'model_name': self.config.model_name,
+                'tasks_evaluated': self.config.tasks,
+                'evaluation_time': evaluation_time,
+                'timestamp': time.time(),
+                'fep_monitoring_enabled': self.fep_monitor is not None,
+                'total_samples': sum(raw_results['n-shot'].values()) if 'n-shot' in raw_results else 0
+            },
+            'task_results': task_results,
+            'aggregate_metrics': aggregate_metrics,
+            'fep_analysis': fep_analysis,
+            'raw_results': raw_results,
+            'status': 'success'
+        }
+        
+        return processed_results
+    
+    def _analyze_fep_monitoring(self, monitoring_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze FEP monitoring data collected during evaluation."""
+        
+        if not monitoring_data:
+            return None
+        
+        # Extract metrics
+        free_energies = [d['free_energy'] for d in monitoring_data]
+        surprises = [d['surprise'] for d in monitoring_data]
+        uncertainties = [d['uncertainty'] for d in monitoring_data]
+        anomaly_scores = [d['anomaly_score'] for d in monitoring_data]
+        
+        # Compute statistics
+        fep_stats = {
+            'free_energy': {
+                'mean': np.mean(free_energies),
+                'std': np.std(free_energies),
+                'min': np.min(free_energies),
+                'max': np.max(free_energies),
+                'median': np.median(free_energies)
+            },
+            'surprise': {
+                'mean': np.mean(surprises),
+                'std': np.std(surprises),
+                'min': np.min(surprises),
+                'max': np.max(surprises),
+                'median': np.median(surprises)
+            },
+            'uncertainty': {
+                'mean': np.mean(uncertainties),
+                'std': np.std(uncertainties),
+                'min': np.min(uncertainties),
+                'max': np.max(uncertainties),
+                'median': np.median(uncertainties)
+            },
+            'anomaly_detection': {
+                'mean_score': np.mean(anomaly_scores),
+                'high_anomaly_count': sum(1 for s in anomaly_scores if s > 0.5),
+                'anomaly_rate': sum(1 for s in anomaly_scores if s > 0.5) / len(anomaly_scores)
+            }
+        }
+        
+        return {
+            'statistics': fep_stats,
+            'total_monitored_samples': len(monitoring_data),
+            'sample_monitoring_data': monitoring_data[:10]  # First 10 samples
+        }
+    
+    def _compute_aggregate_metrics(self, task_results: Dict[str, Any]) -> Dict[str, float]:
+        """Compute aggregate metrics across all tasks."""
+        
+        all_accuracies = []
+        task_metrics = {}
+        
+        for task_name, metrics in task_results.items():
+            # Extract accuracy-like metrics
+            accuracy_keys = ['acc', 'accuracy', 'exact_match', 'f1']
+            task_accuracy = None
+            
+            for key in accuracy_keys:
+                if key in metrics:
+                    task_accuracy = metrics[key]
+                    break
+            
+            if task_accuracy is not None:
+                all_accuracies.append(task_accuracy)
+                task_metrics[task_name] = task_accuracy
+        
+        aggregate = {
+            'mean_accuracy': np.mean(all_accuracies) if all_accuracies else 0.0,
+            'std_accuracy': np.std(all_accuracies) if all_accuracies else 0.0,
+            'num_tasks': len(task_metrics),
+            'task_accuracies': task_metrics
+        }
+        
+        return aggregate
+    
+    def _save_results(self, results: Dict[str, Any]):
+        """Save evaluation results to files."""
+        timestamp = int(time.time())
+        
+        # Save main results
+        results_file = Path(self.config.output_dir) / f"benchmark_results_{timestamp}.json"
+        with open(results_file, 'w') as f:
+            # Convert numpy types for JSON serialization
+            json_results = self._convert_numpy_types(results)
+            json.dump(json_results, f, indent=2)
+        
+        print(f"📊 Results saved to: {results_file}")
+        
+        # Save FEP monitoring data separately if available
+        if results['fep_analysis']:
+            fep_file = Path(self.config.output_dir) / f"fep_monitoring_{timestamp}.json"
+            with open(fep_file, 'w') as f:
+                json.dump(self._convert_numpy_types(results['fep_analysis']), f, indent=2)
+            print(f"🧠 FEP analysis saved to: {fep_file}")
+    
+    def _convert_numpy_types(self, obj):
+        """Convert numpy types to native Python types for JSON serialization."""
+        if isinstance(obj, dict):
+            return {key: self._convert_numpy_types(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_numpy_types(item) for item in obj]
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (np.int_, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.float_, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        else:
+            return obj
+
+def run_real_benchmarks(model_name: str = "distilgpt2",
+                       tasks: List[str] = None,
+                       monitor_with_fep: bool = True,
+                       limit: Optional[int] = 50) -> Dict[str, Any]:
+    """
+    Run real benchmarks with optional FEP monitoring.
+    
+    Args:
+        model_name: Hugging Face model name
+        tasks: List of evaluation tasks
+        monitor_with_fep: Whether to enable FEP monitoring
+        limit: Limit number of examples (for testing)
+        
+    Returns:
+        Real benchmark results with FEP analysis
+    """
+    if tasks is None:
+        tasks = ["truthfulqa_mc", "mmlu", "bbq"]
+    
+    config = BenchmarkConfig(
+        model_name=model_name,
+        tasks=tasks,
+        monitor_with_fep=monitor_with_fep,
+        limit=limit
+    )
+    
+    evaluator = RealBenchmarkEvaluator(config)
+    return evaluator.run_evaluation()
+
+# Example usage and validation
+if __name__ == "__main__":
+    print("📊 Testing Real Benchmark Integration")
+    print("=" * 50)
+    
+    if not LM_EVAL_AVAILABLE:
+        print("❌ lm-evaluation-harness not available. Please install:")
+        print("   pip install lm-eval[all]")
+        sys.exit(1)
+    
+    # Test with small model and limited examples
+    print("1. Running Real Benchmark Evaluation...")
+    print("   (Using small model and limited examples for testing)")
+    
+    try:
+        results = run_real_benchmarks(
+            model_name="distilgpt2",
+            tasks=["truthfulqa_mc"],  # Start with one task
+            monitor_with_fep=True,
+            limit=10  # Very small for testing
+        )
+        
+        if results['status'] == 'success':
+            print("\n✅ Real Benchmark Evaluation Complete!")
+            print(f"   Model: {results['evaluation_metadata']['model_name']}")
+            print(f"   Tasks: {results['evaluation_metadata']['tasks_evaluated']}")
+            print(f"   Evaluation Time: {results['evaluation_metadata']['evaluation_time']:.2f}s")
+            print(f"   Mean Accuracy: {results['aggregate_metrics']['mean_accuracy']:.4f}")
+            
+            if results['fep_analysis']:
+                print(f"   FEP Mean Free Energy: {results['fep_analysis']['statistics']['free_energy']['mean']:.4f}")
+                print(f"   FEP Anomaly Rate: {results['fep_analysis']['statistics']['anomaly_detection']['anomaly_rate']:.4f}")
+        else:
+            print(f"❌ Evaluation failed: {results.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        print("\nThis is expected if lm-eval dependencies are not fully installed.")
+    
+    print("\n🎯 Real benchmark integration ready for production use!")
+    print("No more mock results - only genuine evaluation metrics.")

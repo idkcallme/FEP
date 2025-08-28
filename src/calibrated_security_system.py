@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 """
+🚨 DEPRECATED - REPLACED WITH REAL FEP IMPLEMENTATION
+====================================================
+This file contains mock implementations that have been replaced with genuine FEP-based systems.
+
+For real FEP implementations, use:
+- src/fep_mathematics.py - Core FEP mathematical foundation
+- src/fep_language_interface.py - Real language model integration
+- src/real_benchmark_integration.py - Genuine benchmark evaluation
+
+This file is kept for compatibility but should not be used for serious evaluation.
+"""
+"""
 🎯 CALIBRATED FEP-MCM SECURITY SYSTEM
 ====================================
 Properly calibrated PCAD thresholds and robust CSC training pipeline.

@@ -1,0 +1,76 @@
+# FEP Cognitive Architecture - Package Manifest
+# ==============================================
+# Specifies additional files to include in source distribution
+
+# Core documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+include CODE_OF_CONDUCT.md
+include SECURITY.md
+
+# Configuration files
+include pyproject.toml
+include setup.py
+include requirements*.txt
+include .gitignore
+
+# Source code and package files
+recursive-include src *.py
+recursive-include src *.json
+recursive-include src *.csv
+recursive-include src *.txt
+recursive-include src *.md
+
+# Documentation
+recursive-include docs *.md
+recursive-include docs *.rst
+recursive-include docs *.txt
+recursive-include docs *.py
+recursive-include docs *.png
+recursive-include docs *.jpg
+recursive-include docs *.svg
+
+# Tests
+recursive-include tests *.py
+recursive-include tests *.json
+recursive-include tests *.txt
+recursive-include tests *.md
+
+# Data files
+recursive-include data *.json
+recursive-include data *.csv
+recursive-include data *.txt
+include data/csc_training_dataset.json
+include data/csc_training_dataset_v2.json
+
+# Example experiments and demos
+recursive-include experiments *.py
+recursive-include experiments *.md
+recursive-include experiments *.json
+
+# Reports (example files only, not generated ones)
+include reports/README.md
+
+# Build and packaging files
+include tox.ini
+include Makefile
+
+# Exclude unnecessary files
+exclude *.log
+exclude *.tmp
+exclude *.temp
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * *.so
+recursive-exclude * .DS_Store
+recursive-exclude reports *.json
+recursive-exclude reports *.png
+prune .git
+prune .github
+prune .vscode
+prune .idea
+prune build
+prune dist
+prune *.egg-info

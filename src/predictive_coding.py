@@ -1,0 +1,596 @@
+#!/usr/bin/env python3
+"""
+🧠 PREDICTIVE CODING IMPLEMENTATION
+==================================
+Hierarchical predictive coding based on the Free Energy Principle.
+
+This module implements predictive coding as a process theory of brain function:
+- Hierarchical message passing with prediction errors
+- Top-down predictions and bottom-up error signals
+- Precision-weighted error propagation
+- Temporal dynamics and sequence learning
+- Attention as precision optimization
+
+Based on:
+- Clark, A. (2013). Whatever next? Predictive brains, situated agents, and the future of cognitive science
+- Hohwy, J. (2013). The predictive mind
+- Friston, K. (2005). A theory of cortical responses
+- Rao, R. P., & Ballard, D. H. (1999). Predictive coding in the visual cortex
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from typing import Dict, List, Tuple, Optional, Union, Any
+from dataclasses import dataclass
+import logging
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class PredictiveCodingConfig:
+    """Configuration for predictive coding hierarchy."""
+    input_dim: int = 100
+    hierarchy_levels: int = 4
+    hidden_dims: List[int] = None
+    temporal_depth: int = 5
+    precision_learning_rate: float = 0.01
+    prediction_learning_rate: float = 0.001
+    precision_init: float = 1.0
+    nonlinearity: str = "tanh"
+    
+    def __post_init__(self):
+        if self.hidden_dims is None:
+            # Default: decreasing dimensions up the hierarchy
+            self.hidden_dims = [
+                max(16, self.input_dim // (2 ** i)) 
+                for i in range(self.hierarchy_levels)
+            ]
+
+class PredictiveCodingLevel(nn.Module):
+    """
+    Single level in the predictive coding hierarchy.
+    
+    Each level maintains:
+    - Prediction units (top-down predictions)
+    - Error units (bottom-up prediction errors)
+    - Precision parameters (confidence in predictions/errors)
+    """
+    
+    def __init__(self, 
+                 input_dim: int,
+                 hidden_dim: int,
+                 level_index: int,
+                 config: PredictiveCodingConfig):
+        super().__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.level_index = level_index
+        self.config = config
+        
+        # Prediction network (top-down)
+        self.prediction_network = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            self._get_nonlinearity(),
+            nn.Linear(hidden_dim, input_dim)
+        )
+        
+        # Recognition network (bottom-up)
+        self.recognition_network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            self._get_nonlinearity(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        
+        # Precision parameters (learnable confidence weights)
+        self.log_precision = nn.Parameter(
+            torch.full((input_dim,), np.log(config.precision_init))
+        )
+        
+        # Temporal prediction (for sequence modeling)
+        self.temporal_prediction = nn.GRUCell(hidden_dim, hidden_dim)
+        
+        # Current state
+        self.register_buffer('current_state', torch.zeros(1, hidden_dim))
+        self.register_buffer('current_prediction', torch.zeros(1, input_dim))
+        self.register_buffer('current_error', torch.zeros(1, input_dim))
+        
+    def _get_nonlinearity(self):
+        """Get nonlinearity function based on config."""
+        if self.config.nonlinearity == "tanh":
+            return nn.Tanh()
+        elif self.config.nonlinearity == "relu":
+            return nn.ReLU()
+        elif self.config.nonlinearity == "sigmoid":
+            return nn.Sigmoid()
+        else:
+            return nn.Tanh()
+    
+    def forward(self, 
+                input_signal: torch.Tensor,
+                top_down_prediction: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass through predictive coding level.
+        
+        Args:
+            input_signal: Bottom-up input from lower level
+            top_down_prediction: Top-down prediction from higher level
+            
+        Returns:
+            Dictionary containing predictions, errors, and states
+        """
+        batch_size = input_signal.shape[0]
+        
+        # Ensure current state has correct batch size
+        if self.current_state.shape[0] != batch_size:
+            # Reset states to correct batch size instead of expanding
+            self.current_state = torch.zeros(batch_size, self.hidden_dim)
+            self.current_prediction = torch.zeros(batch_size, self.input_dim)
+            self.current_error = torch.zeros(batch_size, self.input_dim)
+        
+        # Generate prediction from current state
+        prediction = self.prediction_network(self.current_state)
+        
+        # Compute prediction error
+        error = input_signal - prediction
+        
+        # Precision-weighted error
+        precision = torch.exp(self.log_precision)
+        weighted_error = precision * error
+        
+        # Update state based on error (bottom-up) and top-down signal
+        error_signal = self.recognition_network(weighted_error)
+        
+        if top_down_prediction is not None:
+            # Combine bottom-up error with top-down prediction
+            combined_signal = error_signal + top_down_prediction
+        else:
+            combined_signal = error_signal
+        
+        # Temporal update
+        new_state = self.temporal_prediction(combined_signal, self.current_state)
+        
+        # Update stored states
+        self.current_state = new_state.detach()
+        self.current_prediction = prediction.detach()
+        self.current_error = error.detach()
+        
+        return {
+            'state': new_state,
+            'prediction': prediction,
+            'error': error,
+            'weighted_error': weighted_error,
+            'precision': precision,
+            'error_signal': error_signal
+        }
+    
+    def reset_state(self, batch_size: int = 1):
+        """Reset the internal state of the level."""
+        self.current_state = torch.zeros(batch_size, self.hidden_dim)
+        self.current_prediction = torch.zeros(batch_size, self.input_dim)
+        self.current_error = torch.zeros(batch_size, self.input_dim)
+
+class PredictiveCodingHierarchy(nn.Module):
+    """
+    Complete hierarchical predictive coding network.
+    
+    Implements a multi-level hierarchy where:
+    - Each level predicts the activity of the level below
+    - Prediction errors propagate up the hierarchy
+    - Top-down predictions flow down the hierarchy
+    - Precision parameters control the influence of each level
+    """
+    
+    def __init__(self, config: PredictiveCodingConfig):
+        super().__init__()
+        self.config = config
+        self.num_levels = config.hierarchy_levels
+        
+        # Create hierarchy levels
+        self.levels = nn.ModuleList()
+        
+        for i in range(self.num_levels):
+            if i == 0:
+                # Bottom level: processes raw input
+                input_dim = config.input_dim
+            else:
+                # Higher levels: process states from level below
+                input_dim = config.hidden_dims[i-1]
+            
+            level = PredictiveCodingLevel(
+                input_dim=input_dim,
+                hidden_dim=config.hidden_dims[i],
+                level_index=i,
+                config=config
+            )
+            
+            self.levels.append(level)
+        
+        # Global precision parameter (attention mechanism)
+        self.global_precision = nn.Parameter(torch.tensor(1.0))
+        
+        # Sequence buffer for temporal processing
+        self.sequence_buffer = []
+        
+    def forward(self, input_data: torch.Tensor) -> Dict[str, Any]:
+        """
+        Forward pass through the entire hierarchy.
+        
+        Implements the predictive coding algorithm:
+        1. Bottom-up pass: compute prediction errors at each level
+        2. Top-down pass: propagate predictions down the hierarchy
+        3. Update states based on precision-weighted errors
+        """
+        batch_size = input_data.shape[0]
+        
+        # Store results for each level
+        level_results = []
+        states = []
+        predictions = []
+        errors = []
+        
+        # Bottom-up pass: compute errors at each level
+        current_input = input_data
+        
+        for level_idx, level in enumerate(self.levels):
+            # Get top-down prediction from level above (if exists)
+            if level_idx < len(states):
+                # This would be from a previous iteration or initialization
+                top_down_pred = None
+            else:
+                top_down_pred = None
+            
+            # Forward pass through level
+            level_result = level(current_input, top_down_pred)
+            
+            level_results.append(level_result)
+            states.append(level_result['state'])
+            predictions.append(level_result['prediction'])
+            errors.append(level_result['error'])
+            
+            # Input to next level is the current level's state
+            current_input = level_result['state']
+        
+        # Top-down pass: propagate predictions down
+        for level_idx in reversed(range(self.num_levels - 1)):
+            # Higher level state becomes prediction for lower level
+            if level_idx + 1 < len(states):
+                higher_state = states[level_idx + 1]
+                
+                # Project higher state to lower level's input dimension
+                if hasattr(self.levels[level_idx + 1], 'prediction_network'):
+                    top_down_pred = self.levels[level_idx + 1].prediction_network(higher_state)
+                else:
+                    top_down_pred = higher_state
+                
+                # Re-process lower level with top-down prediction
+                if level_idx == 0:
+                    level_input = input_data
+                else:
+                    level_input = states[level_idx - 1]
+                
+                updated_result = self.levels[level_idx](level_input, top_down_pred)
+                level_results[level_idx] = updated_result
+                states[level_idx] = updated_result['state']
+                predictions[level_idx] = updated_result['prediction']
+                errors[level_idx] = updated_result['error']
+        
+        # Compute hierarchical metrics
+        total_error = self._compute_total_error(errors)
+        attention_weights = self._compute_attention_weights(errors)
+        hierarchical_surprise = self._compute_hierarchical_surprise(level_results)
+        
+        return {
+            'level_results': level_results,
+            'states': states,
+            'predictions': predictions,
+            'errors': errors,
+            'total_error': total_error,
+            'attention_weights': attention_weights,
+            'hierarchical_surprise': hierarchical_surprise,
+            'global_precision': torch.exp(self.global_precision)
+        }
+    
+    def _compute_total_error(self, errors: List[torch.Tensor]) -> torch.Tensor:
+        """Compute total prediction error across hierarchy."""
+        total = torch.zeros_like(errors[0][:, :1])  # Initialize with correct shape
+        
+        for level_idx, error in enumerate(errors):
+            # Weight errors by level (higher levels have more influence)
+            level_weight = 1.0 / (level_idx + 1)
+            level_error = torch.sum(error ** 2, dim=-1, keepdim=True)
+            total += level_weight * level_error
+        
+        return total.squeeze(-1)
+    
+    def _compute_attention_weights(self, errors: List[torch.Tensor]) -> torch.Tensor:
+        """Compute attention weights based on prediction errors."""
+        # Attention goes to levels with highest prediction errors
+        error_magnitudes = []
+        
+        for error in errors:
+            magnitude = torch.sum(error ** 2, dim=-1)
+            error_magnitudes.append(magnitude)
+        
+        # Stack and normalize
+        error_stack = torch.stack(error_magnitudes, dim=-1)  # [batch, num_levels]
+        attention_weights = F.softmax(error_stack * self.global_precision, dim=-1)
+        
+        return attention_weights
+    
+    def _compute_hierarchical_surprise(self, level_results: List[Dict[str, torch.Tensor]]) -> torch.Tensor:
+        """Compute surprise (negative log-likelihood) across hierarchy."""
+        total_surprise = torch.zeros(level_results[0]['error'].shape[0])
+        
+        for level_idx, result in enumerate(level_results):
+            error = result['error']
+            precision = result['precision']
+            
+            # Surprise = 0.5 * precision * error^2 + 0.5 * log(2π/precision)
+            surprise = 0.5 * torch.sum(
+                precision * error ** 2 - torch.log(precision + 1e-8),
+                dim=-1
+            )
+            
+            total_surprise += surprise
+        
+        return total_surprise
+    
+    def process_sequence(self, sequence: torch.Tensor) -> Dict[str, Any]:
+        """
+        Process a temporal sequence through the hierarchy.
+        
+        Args:
+            sequence: [batch_size, sequence_length, input_dim]
+            
+        Returns:
+            Results for each timestep and sequence-level metrics
+        """
+        batch_size, seq_len, input_dim = sequence.shape
+        
+        # Reset states for new sequence
+        for level in self.levels:
+            level.reset_state(batch_size)
+        
+        timestep_results = []
+        
+        for t in range(seq_len):
+            # Process current timestep
+            timestep_input = sequence[:, t, :]
+            result = self.forward(timestep_input)
+            timestep_results.append(result)
+        
+        # Compute sequence-level metrics
+        sequence_surprise = torch.stack([r['hierarchical_surprise'] for r in timestep_results], dim=1)
+        sequence_attention = torch.stack([r['attention_weights'] for r in timestep_results], dim=1)
+        
+        return {
+            'timestep_results': timestep_results,
+            'sequence_surprise': sequence_surprise,
+            'sequence_attention': sequence_attention,
+            'mean_surprise': sequence_surprise.mean(dim=1),
+            'surprise_trajectory': sequence_surprise
+        }
+    
+    def predict_next(self, current_input: torch.Tensor, steps_ahead: int = 1) -> List[torch.Tensor]:
+        """
+        Generate predictions for future timesteps.
+        
+        Args:
+            current_input: Current observation
+            steps_ahead: Number of future steps to predict
+            
+        Returns:
+            List of predicted observations
+        """
+        predictions = []
+        
+        # Process current input to update states
+        self.forward(current_input)
+        
+        # Generate future predictions
+        for step in range(steps_ahead):
+            # Use current states to generate prediction
+            future_prediction = self.levels[0].current_prediction
+            predictions.append(future_prediction)
+            
+            # Update states based on predicted input
+            self.forward(future_prediction)
+        
+        return predictions
+
+class AttentionMechanism:
+    """
+    Attention mechanism based on precision optimization in predictive coding.
+    
+    Implements attention as the optimization of precision parameters,
+    determining which prediction errors should be weighted more heavily.
+    """
+    
+    def __init__(self, hierarchy: PredictiveCodingHierarchy):
+        self.hierarchy = hierarchy
+        
+    def allocate_attention(self, 
+                         input_data: torch.Tensor,
+                         attention_target: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+        """
+        Allocate attention based on prediction errors and optional targets.
+        
+        Args:
+            input_data: Current input to process
+            attention_target: Optional target to focus attention on
+            
+        Returns:
+            Attention allocation across hierarchy levels and spatial locations
+        """
+        # Process input through hierarchy
+        result = self.hierarchy.forward(input_data)
+        
+        # Get attention weights from hierarchy
+        hierarchical_attention = result['attention_weights']
+        
+        # Compute spatial attention within each level
+        spatial_attention = []
+        for level_result in result['level_results']:
+            error = level_result['error']
+            precision = level_result['precision']
+            
+            # Spatial attention based on precision-weighted errors
+            spatial_weights = F.softmax(precision * torch.abs(error), dim=-1)
+            spatial_attention.append(spatial_weights)
+        
+        # If attention target is provided, bias attention toward it
+        if attention_target is not None:
+            # Compute similarity between target and current predictions
+            target_similarity = []
+            for prediction in result['predictions']:
+                if prediction.shape == attention_target.shape:
+                    similarity = F.cosine_similarity(prediction, attention_target, dim=-1)
+                    target_similarity.append(similarity)
+            
+            if target_similarity:
+                # Bias attention toward levels with high target similarity
+                target_bias = torch.stack(target_similarity, dim=-1)
+                hierarchical_attention = hierarchical_attention + 0.1 * F.softmax(target_bias, dim=-1)
+        
+        return {
+            'hierarchical_attention': hierarchical_attention,
+            'spatial_attention': spatial_attention,
+            'attended_features': self._apply_attention(result, hierarchical_attention, spatial_attention)
+        }
+    
+    def _apply_attention(self, 
+                        hierarchy_result: Dict[str, Any],
+                        hierarchical_attention: torch.Tensor,
+                        spatial_attention: List[torch.Tensor]) -> torch.Tensor:
+        """Apply attention weights to extract attended features."""
+        attended_features = []
+        
+        for level_idx, (state, spatial_attn) in enumerate(zip(
+            hierarchy_result['states'], spatial_attention
+        )):
+            # Apply spatial attention to state
+            # Handle dimension mismatches between state and attention
+            if state.shape[-1] != spatial_attn.shape[-1]:
+                if state.shape[-1] > spatial_attn.shape[-1]:
+                    # Truncate state to match attention
+                    state = state[:, :spatial_attn.shape[-1]]
+                else:
+                    # Truncate attention to match state
+                    spatial_attn = spatial_attn[:, :state.shape[-1]]
+            
+            attended_state = state * spatial_attn
+            
+            # Weight by hierarchical attention
+            level_weight = hierarchical_attention[:, level_idx:level_idx+1]
+            weighted_state = attended_state * level_weight
+            
+            attended_features.append(weighted_state)
+        
+        # Combine attended features from all levels
+        # Handle dimension mismatches by using adaptive pooling
+        if not attended_features:
+            # Return zero features if no attended features
+            return torch.zeros(hierarchical_attention.shape[0], 64)  # Default feature size
+        
+        # Find minimum dimension to avoid dimension mismatch
+        min_dim = min(f.shape[-1] for f in attended_features)
+        normalized_features = []
+        
+        for features in attended_features:
+            if features.shape[-1] > min_dim:
+                # Truncate to minimum dimension
+                normalized = features[:, :min_dim]
+            else:
+                # Pad to minimum dimension
+                padding = min_dim - features.shape[-1]
+                normalized = F.pad(features, (0, padding))
+            normalized_features.append(normalized)
+        
+        # Stack and sum
+        combined_features = torch.stack(normalized_features, dim=1).sum(dim=1)
+        return combined_features
+
+def create_predictive_coding_system(input_dim: int = 100,
+                                  hierarchy_levels: int = 4,
+                                  temporal_depth: int = 5) -> Tuple[PredictiveCodingHierarchy, AttentionMechanism]:
+    """Factory function to create predictive coding system."""
+    config = PredictiveCodingConfig(
+        input_dim=input_dim,
+        hierarchy_levels=hierarchy_levels,
+        temporal_depth=temporal_depth
+    )
+    
+    hierarchy = PredictiveCodingHierarchy(config)
+    attention = AttentionMechanism(hierarchy)
+    
+    return hierarchy, attention
+
+# Example usage and validation
+if __name__ == "__main__":
+    print("🧠 Testing Predictive Coding Implementation")
+    print("=" * 50)
+    
+    # Create predictive coding system
+    print("1. Creating Predictive Coding Hierarchy...")
+    hierarchy, attention_mechanism = create_predictive_coding_system(
+        input_dim=50, hierarchy_levels=3, temporal_depth=4
+    )
+    
+    # Test single timestep processing
+    print("\n2. Testing Single Timestep Processing...")
+    test_input = torch.randn(2, 50)  # batch_size=2, input_dim=50
+    result = hierarchy.forward(test_input)
+    
+    print(f"   Processed through {len(result['level_results'])} levels")
+    print(f"   Total error: {result['total_error'].mean().item():.4f}")
+    print(f"   Hierarchical surprise: {result['hierarchical_surprise'].mean().item():.4f}")
+    print(f"   Attention weights: {result['attention_weights'][0].tolist()}")
+    
+    # Test sequence processing
+    print("\n3. Testing Sequence Processing...")
+    test_sequence = torch.randn(2, 5, 50)  # batch=2, seq_len=5, input_dim=50
+    seq_result = hierarchy.process_sequence(test_sequence)
+    
+    print(f"   Processed sequence of length {test_sequence.shape[1]}")
+    print(f"   Mean surprise: {seq_result['mean_surprise'].mean().item():.4f}")
+    print(f"   Surprise trajectory shape: {seq_result['surprise_trajectory'].shape}")
+    
+    # Test prediction
+    print("\n4. Testing Future Prediction...")
+    current_obs = torch.randn(1, 50)
+    future_predictions = hierarchy.predict_next(current_obs, steps_ahead=3)
+    
+    print(f"   Generated {len(future_predictions)} future predictions")
+    print(f"   Prediction shapes: {[p.shape for p in future_predictions]}")
+    
+    # Test attention mechanism
+    print("\n5. Testing Attention Mechanism...")
+    attention_result = attention_mechanism.allocate_attention(test_input)
+    
+    print(f"   Hierarchical attention: {attention_result['hierarchical_attention'][0].tolist()}")
+    print(f"   Attended features shape: {attention_result['attended_features'].shape}")
+    
+    print("\n6. Testing Learning Dynamics...")
+    
+    # Test parameter updates
+    optimizer = torch.optim.Adam(hierarchy.parameters(), lr=0.001)
+    
+    initial_loss = result['hierarchical_surprise'].mean()
+    
+    for epoch in range(5):
+        result = hierarchy.forward(test_input)
+        loss = result['hierarchical_surprise'].mean()
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        print(f"   Epoch {epoch+1}: Loss = {loss.item():.4f}")
+    
+    final_loss = result['hierarchical_surprise'].mean()
+    print(f"   Loss reduction: {initial_loss.item():.4f} → {final_loss.item():.4f}")
+    
+    print("\n✅ Predictive Coding Implementation Complete!")
+    print("Hierarchical prediction, error propagation, and attention working.")

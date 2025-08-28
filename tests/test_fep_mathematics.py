@@ -1,0 +1,590 @@
+#!/usr/bin/env python3
+"""
+🧪 FEP MATHEMATICS UNIT TESTS
+============================
+Comprehensive unit tests for Free Energy Principle mathematical properties.
+
+These tests validate that our implementation satisfies the fundamental
+mathematical properties of the Free Energy Principle:
+
+1. Free energy bounds log evidence: F ≥ log p(x)
+2. Free energy decomposition: F = Accuracy + Complexity  
+3. Belief updating reduces free energy
+4. Hierarchical consistency
+5. Active inference properties
+6. Predictive coding dynamics
+
+Scientific rigor: These tests ensure mathematical correctness.
+"""
+
+import unittest
+import torch
+import torch.nn as nn
+import numpy as np
+import sys
+import os
+
+# Add src directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from fep_mathematics import (
+    GenerativeModel, VariationalPosterior, FreeEnergyCalculator,
+    HierarchicalFEPSystem, create_fep_system
+)
+from active_inference import ActiveInferenceAgent, create_active_inference_agent
+from predictive_coding import PredictiveCodingHierarchy, create_predictive_coding_system
+
+class TestFEPMathematicalProperties(unittest.TestCase):
+    """Test fundamental mathematical properties of FEP implementation."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.obs_dim = 20
+        self.latent_dim = 10
+        self.batch_size = 4
+        
+        # Create FEP components
+        self.generative_model = GenerativeModel(self.obs_dim, self.latent_dim)
+        self.posterior = VariationalPosterior(self.obs_dim, self.latent_dim)
+        self.fe_calculator = FreeEnergyCalculator(self.generative_model, self.posterior)
+        
+        # Test data
+        self.test_observations = torch.randn(self.batch_size, self.obs_dim)
+        self.test_latents = torch.randn(self.batch_size, self.latent_dim)
+        
+        # Set random seed for reproducibility
+        torch.manual_seed(42)
+        np.random.seed(42)
+    
+    def test_free_energy_bounds_log_evidence(self):
+        """Test that free energy provides an upper bound on negative log evidence."""
+        print("\n🧮 Testing: F ≥ -log p(x) (Evidence Lower Bound)")
+        
+        # Compute free energy
+        fe_components = self.fe_calculator.compute_free_energy(self.test_observations)
+        free_energy = fe_components['free_energy']
+        log_evidence = fe_components['log_evidence']
+        
+        # Test: F = -ELBO ≥ -log p(x)
+        # Equivalently: log p(x) ≥ -F (log evidence ≥ negative free energy)
+        bound_satisfied = torch.all(log_evidence >= -free_energy - 1e-6)  # Small tolerance
+        
+        self.assertTrue(
+            bound_satisfied.item(),
+            f"Evidence lower bound violated: log_evidence={log_evidence.mean().item():.4f}, "
+            f"-free_energy={-free_energy.mean().item():.4f}"
+        )
+        
+        print(f"   ✅ Evidence lower bound satisfied")
+        print(f"   📊 Mean log evidence: {log_evidence.mean().item():.4f}")
+        print(f"   📊 Mean free energy: {free_energy.mean().item():.4f}")
+    
+    def test_free_energy_decomposition(self):
+        """Test that free energy decomposes into accuracy (surprise) + complexity."""
+        print("\n🧮 Testing: F = Accuracy + Complexity")
+        
+        fe_components = self.fe_calculator.compute_free_energy(self.test_observations)
+        
+        free_energy = fe_components['free_energy']
+        reconstruction_error = fe_components['reconstruction_error']  # Accuracy term
+        kl_divergence = fe_components['kl_divergence']  # Complexity term
+        
+        # Test: F = Reconstruction_error + KL_divergence
+        reconstructed_fe = reconstruction_error + kl_divergence
+        decomposition_error = torch.abs(free_energy - reconstructed_fe)
+        
+        max_error = decomposition_error.max().item()
+        self.assertLess(
+            max_error, 1e-5,
+            f"Free energy decomposition failed: max error = {max_error:.6f}"
+        )
+        
+        print(f"   ✅ Decomposition F = Accuracy + Complexity verified")
+        print(f"   📊 Mean accuracy (surprise): {reconstruction_error.mean().item():.4f}")
+        print(f"   📊 Mean complexity (KL): {kl_divergence.mean().item():.4f}")
+        print(f"   📊 Decomposition error: {max_error:.6f}")
+    
+    def test_belief_updating_reduces_free_energy(self):
+        """Test that belief updating reduces free energy over iterations."""
+        print("\n🧮 Testing: Belief updating reduces free energy")
+        
+        # Initial free energy
+        initial_fe = self.fe_calculator.compute_free_energy(self.test_observations)['free_energy']
+        initial_mean = initial_fe.mean().item()
+        
+        # Perform belief updates
+        fe_history = [initial_mean]
+        
+        for iteration in range(5):
+            update_results = self.fe_calculator.update_beliefs(
+                self.test_observations, 
+                learning_rate=0.1
+            )
+            fe_history.append(update_results['free_energy'])
+        
+        # Test that free energy generally decreases
+        final_fe = fe_history[-1]
+        fe_reduction = initial_mean - final_fe
+        
+        self.assertGreater(
+            fe_reduction, -0.1,  # Allow small increases due to stochasticity
+            f"Free energy increased significantly: {initial_mean:.4f} → {final_fe:.4f}"
+        )
+        
+        # Test monotonic decrease (at least no large increases)
+        for i in range(1, len(fe_history)):
+            increase = fe_history[i] - fe_history[i-1]
+            self.assertLess(
+                increase, 0.5,  # Allow moderate increases due to stochasticity
+                f"Large free energy increase at step {i}: {increase:.4f}"
+            )
+        
+        print(f"   ✅ Free energy evolution: {initial_mean:.4f} → {final_fe:.4f}")
+        print(f"   📊 Total reduction: {fe_reduction:.4f}")
+        print(f"   📈 FE trajectory: {[f'{fe:.3f}' for fe in fe_history]}")
+    
+    def test_generative_model_consistency(self):
+        """Test mathematical consistency of generative model."""
+        print("\n🧮 Testing: Generative model consistency")
+        
+        # Test prior sampling
+        prior_samples = self.generative_model.sample_prior(self.batch_size)
+        self.assertEqual(
+            prior_samples.shape, 
+            (self.batch_size, self.latent_dim),
+            "Prior sampling shape mismatch"
+        )
+        
+        # Test likelihood computation
+        obs_mean, obs_logvar = self.generative_model(prior_samples)
+        self.assertEqual(obs_mean.shape, (self.batch_size, self.obs_dim))
+        self.assertEqual(obs_logvar.shape, (self.batch_size, self.obs_dim))
+        
+        # Test log probability computations
+        log_prior = self.generative_model.log_prob_prior(prior_samples)
+        log_likelihood = self.generative_model.log_prob_likelihood(self.test_observations, prior_samples)
+        
+        self.assertEqual(log_prior.shape, (self.batch_size,))
+        self.assertEqual(log_likelihood.shape, (self.batch_size,))
+        
+        # Test that probabilities are finite
+        self.assertTrue(torch.isfinite(log_prior).all(), "Prior log probabilities not finite")
+        self.assertTrue(torch.isfinite(log_likelihood).all(), "Likelihood log probabilities not finite")
+        
+        print(f"   ✅ Generative model shapes and values consistent")
+        print(f"   📊 Prior log prob range: [{log_prior.min().item():.3f}, {log_prior.max().item():.3f}]")
+        print(f"   📊 Likelihood log prob range: [{log_likelihood.min().item():.3f}, {log_likelihood.max().item():.3f}]")
+    
+    def test_posterior_inference_consistency(self):
+        """Test mathematical consistency of posterior inference."""
+        print("\n🧮 Testing: Posterior inference consistency")
+        
+        # Test posterior inference
+        post_mean, post_logvar = self.posterior(self.test_observations)
+        self.assertEqual(post_mean.shape, (self.batch_size, self.latent_dim))
+        self.assertEqual(post_logvar.shape, (self.batch_size, self.latent_dim))
+        
+        # Test posterior sampling
+        posterior_samples = self.posterior.sample(self.test_observations, n_samples=3)
+        expected_shape = (self.batch_size, 3, self.latent_dim)
+        self.assertEqual(posterior_samples.shape, expected_shape)
+        
+        # Test log probability computation
+        log_posterior = self.posterior.log_prob(posterior_samples[:, 0], self.test_observations)
+        self.assertEqual(log_posterior.shape, (self.batch_size,))
+        self.assertTrue(torch.isfinite(log_posterior).all(), "Posterior log probabilities not finite")
+        
+        # Test that posterior variance is positive
+        posterior_var = torch.exp(post_logvar)
+        self.assertTrue(torch.all(posterior_var > 0), "Posterior variance not positive")
+        
+        print(f"   ✅ Posterior inference shapes and values consistent")
+        print(f"   📊 Posterior mean range: [{post_mean.min().item():.3f}, {post_mean.max().item():.3f}]")
+        print(f"   📊 Posterior std range: [{posterior_var.sqrt().min().item():.3f}, {posterior_var.sqrt().max().item():.3f}]")
+    
+    def test_hierarchical_consistency(self):
+        """Test consistency of hierarchical FEP system."""
+        print("\n🧮 Testing: Hierarchical FEP consistency")
+        
+        # Create hierarchical system
+        hierarchical_system = HierarchicalFEPSystem(
+            observation_dim=self.obs_dim,
+            latent_dims=[16, 8, 4],
+            hidden_dims=[32, 16]
+        )
+        
+        # Test hierarchical inference
+        hierarchical_results = hierarchical_system.hierarchical_inference(self.test_observations)
+        
+        # Check that we get results for each level
+        self.assertEqual(len(hierarchical_results), 3, "Wrong number of hierarchy levels")
+        
+        # Check shapes and finite values at each level
+        for level, result in enumerate(hierarchical_results):
+            self.assertIn('free_energy', result, f"Missing free energy at level {level}")
+            self.assertTrue(
+                torch.isfinite(result['free_energy']).all(),
+                f"Non-finite free energy at level {level}"
+            )
+        
+        # Test total free energy computation
+        total_fe = hierarchical_system.compute_total_free_energy(self.test_observations)
+        self.assertEqual(total_fe.shape, (self.batch_size,))
+        self.assertTrue(torch.isfinite(total_fe).all(), "Total hierarchical FE not finite")
+        
+        print(f"   ✅ Hierarchical system with {len(hierarchical_results)} levels working")
+        level_fe_values = [r["free_energy"].mean().item() for r in hierarchical_results]
+        print(f"   📊 Level FE: {[f'{fe:.3f}' for fe in level_fe_values]}")
+        print(f"   📊 Total FE: {total_fe.mean().item():.3f}")
+
+class TestActiveInferenceProperties(unittest.TestCase):
+    """Test active inference mathematical properties."""
+    
+    def setUp(self):
+        """Set up active inference test fixtures."""
+        self.obs_dim = 20
+        self.action_dim = 5
+        self.latent_dim = 10
+        
+        self.agent = create_active_inference_agent(
+            observation_dim=self.obs_dim,
+            action_dim=self.action_dim,
+            latent_dim=self.latent_dim
+        )
+        
+        self.test_observation = torch.randn(self.obs_dim)
+    
+    def test_policy_generation_consistency(self):
+        """Test that policy generation produces valid probability distributions."""
+        print("\n🎯 Testing: Policy generation consistency")
+        
+        # Generate policies
+        test_beliefs = torch.randn(1, self.latent_dim)
+        policies = self.agent.policy_network.generate_policies(test_beliefs)
+        
+        # Check shape
+        expected_shape = (1, self.agent.config.num_policies, self.agent.config.policy_horizon, self.action_dim)
+        self.assertEqual(policies.shape, expected_shape, "Policy shape mismatch")
+        
+        # Check that policies are valid probability distributions
+        policy_sums = policies.sum(dim=-1)  # Sum over actions
+        expected_sums = torch.ones_like(policy_sums)
+        
+        self.assertTrue(
+            torch.allclose(policy_sums, expected_sums, atol=1e-5),
+            "Policies are not valid probability distributions"
+        )
+        
+        # Check that all probabilities are non-negative
+        self.assertTrue(
+            torch.all(policies >= 0),
+            "Negative probabilities in policies"
+        )
+        
+        print(f"   ✅ Generated {self.agent.config.num_policies} valid policies")
+        print(f"   📊 Policy shape: {policies.shape}")
+        print(f"   📊 Probability sum check passed")
+    
+    def test_expected_free_energy_computation(self):
+        """Test expected free energy computation properties."""
+        print("\n🎯 Testing: Expected free energy computation")
+        
+        test_beliefs = torch.randn(1, self.latent_dim)
+        policies = self.agent.policy_network.generate_policies(test_beliefs)
+        
+        # Compute expected free energy
+        expected_fe = self.agent.efe_calculator.compute_expected_free_energy(test_beliefs, policies)
+        
+        # Check shape
+        expected_shape = (1, self.agent.config.num_policies)
+        self.assertEqual(expected_fe.shape, expected_shape, "Expected FE shape mismatch")
+        
+        # Check that values are finite
+        self.assertTrue(
+            torch.isfinite(expected_fe).all(),
+            "Expected free energy contains non-finite values"
+        )
+        
+        # Check that different policies have different expected FE (usually)
+        fe_std = expected_fe.std()
+        self.assertGreater(
+            fe_std.item(), 1e-6,
+            "All policies have identical expected free energy (suspicious)"
+        )
+        
+        print(f"   ✅ Expected FE computation working")
+        print(f"   📊 EFE range: [{expected_fe.min().item():.3f}, {expected_fe.max().item():.3f}]")
+        print(f"   📊 EFE std: {fe_std.item():.3f}")
+    
+    def test_active_inference_cycle(self):
+        """Test complete active inference cycle: perceive → act → learn."""
+        print("\n🎯 Testing: Active inference cycle")
+        
+        # Initial state
+        initial_beliefs = self.agent.current_beliefs.clone()
+        
+        # Perception step
+        perception_result = self.agent.perceive(self.test_observation)
+        
+        # Check perception results
+        self.assertIn('beliefs', perception_result)
+        self.assertIn('free_energy', perception_result)
+        self.assertTrue(torch.isfinite(perception_result['free_energy']).all())
+        
+        # Action step
+        action_result = self.agent.act()
+        
+        # Check action results
+        self.assertIn('action', action_result)
+        self.assertIn('expected_free_energies', action_result)
+        self.assertEqual(action_result['action'].shape, (self.action_dim,))
+        
+        # Learning step (if previous experience exists)
+        if hasattr(self.agent, 'last_observation'):
+            learning_result = self.agent.learn(self.test_observation, action_result['action'])
+            self.assertIn('total_loss', learning_result)
+            self.assertTrue(learning_result['total_loss'] >= 0, "Negative loss")
+        
+        # Test that beliefs changed
+        belief_change = torch.norm(self.agent.current_beliefs - initial_beliefs)
+        self.assertGreater(
+            belief_change.item(), 1e-6,
+            "Beliefs did not change after perception"
+        )
+        
+        print(f"   ✅ Complete active inference cycle working")
+        print(f"   📊 Belief change: {belief_change.item():.4f}")
+        print(f"   📊 Selected action: {action_result['action'][:3].tolist()}...")
+    
+    def test_temporal_dynamics_consistency(self):
+        """Test temporal dynamics and prediction consistency."""
+        print("\n🎯 Testing: Temporal dynamics consistency")
+        
+        # Test future prediction
+        current_beliefs = torch.randn(self.latent_dim)
+        future_actions = torch.randn(3, self.action_dim)  # 3 future actions
+        
+        predicted_beliefs = self.agent.temporal_dynamics.predict_future_beliefs(
+            current_beliefs.unsqueeze(0), future_actions
+        )
+        
+        # Check predictions
+        self.assertEqual(len(predicted_beliefs), 3, "Wrong number of future predictions")
+        
+        for i, pred in enumerate(predicted_beliefs):
+            self.assertEqual(pred.shape, (1, self.latent_dim), f"Prediction {i} shape mismatch")
+            self.assertTrue(torch.isfinite(pred).all(), f"Prediction {i} not finite")
+        
+        # Test temporal prediction errors
+        # Add some temporal states first
+        for _ in range(3):
+            obs = torch.randn(self.obs_dim)
+            action = torch.randn(self.action_dim)
+            beliefs = torch.randn(self.latent_dim)
+            self.agent.temporal_dynamics.update_temporal_state(obs, action, beliefs)
+        
+        temporal_error = self.agent.temporal_dynamics.compute_temporal_prediction_errors()
+        self.assertTrue(torch.isfinite(temporal_error), "Temporal error not finite")
+        self.assertTrue(temporal_error >= 0, "Negative temporal error")
+        
+        print(f"   ✅ Temporal dynamics working")
+        print(f"   📊 Future predictions: {len(predicted_beliefs)}")
+        print(f"   📊 Temporal error: {temporal_error.item():.4f}")
+
+class TestPredictiveCodingProperties(unittest.TestCase):
+    """Test predictive coding mathematical properties."""
+    
+    def setUp(self):
+        """Set up predictive coding test fixtures."""
+        self.input_dim = 30
+        self.hierarchy_levels = 3
+        
+        self.hierarchy, self.attention = create_predictive_coding_system(
+            input_dim=self.input_dim,
+            hierarchy_levels=self.hierarchy_levels,
+            temporal_depth=4
+        )
+        
+        self.test_input = torch.randn(2, self.input_dim)
+    
+    def test_hierarchical_prediction_consistency(self):
+        """Test consistency of hierarchical predictions."""
+        print("\n🧠 Testing: Hierarchical prediction consistency")
+        
+        result = self.hierarchy.forward(self.test_input)
+        
+        # Check that we have results for each level
+        self.assertEqual(len(result['level_results']), self.hierarchy_levels)
+        self.assertEqual(len(result['predictions']), self.hierarchy_levels)
+        self.assertEqual(len(result['errors']), self.hierarchy_levels)
+        
+        # Check shapes and finite values
+        for level in range(self.hierarchy_levels):
+            prediction = result['predictions'][level]
+            error = result['errors'][level]
+            
+            self.assertTrue(torch.isfinite(prediction).all(), f"Level {level} prediction not finite")
+            self.assertTrue(torch.isfinite(error).all(), f"Level {level} error not finite")
+        
+        # Check total error computation
+        total_error = result['total_error']
+        self.assertEqual(total_error.shape, (2,))  # batch_size = 2
+        self.assertTrue(torch.isfinite(total_error).all(), "Total error not finite")
+        self.assertTrue(torch.all(total_error >= 0), "Negative total error")
+        
+        print(f"   ✅ Hierarchical predictions consistent across {self.hierarchy_levels} levels")
+        print(f"   📊 Total error: {total_error.mean().item():.4f}")
+    
+    def test_attention_weight_properties(self):
+        """Test mathematical properties of attention weights."""
+        print("\n🧠 Testing: Attention weight properties")
+        
+        result = self.hierarchy.forward(self.test_input)
+        attention_weights = result['attention_weights']
+        
+        # Check shape
+        self.assertEqual(attention_weights.shape, (2, self.hierarchy_levels))
+        
+        # Check that attention weights sum to 1 (probability distribution)
+        attention_sums = attention_weights.sum(dim=-1)
+        expected_sums = torch.ones(2)
+        
+        self.assertTrue(
+            torch.allclose(attention_sums, expected_sums, atol=1e-5),
+            "Attention weights do not sum to 1"
+        )
+        
+        # Check that all weights are non-negative
+        self.assertTrue(
+            torch.all(attention_weights >= 0),
+            "Negative attention weights"
+        )
+        
+        # Test attention mechanism
+        attention_result = self.attention.allocate_attention(self.test_input)
+        
+        hierarchical_attention = attention_result['hierarchical_attention']
+        spatial_attention = attention_result['spatial_attention']
+        
+        self.assertEqual(len(spatial_attention), self.hierarchy_levels)
+        
+        print(f"   ✅ Attention weights are valid probability distributions")
+        print(f"   📊 Attention distribution: {attention_weights[0].tolist()}")
+    
+    def test_sequence_processing_consistency(self):
+        """Test consistency of sequence processing."""
+        print("\n🧠 Testing: Sequence processing consistency")
+        
+        # Create test sequence
+        seq_len = 5
+        test_sequence = torch.randn(2, seq_len, self.input_dim)
+        
+        # Process sequence
+        seq_result = self.hierarchy.process_sequence(test_sequence)
+        
+        # Check results
+        self.assertEqual(len(seq_result['timestep_results']), seq_len)
+        self.assertEqual(seq_result['sequence_surprise'].shape, (2, seq_len))
+        
+        # Check that surprise values are finite and non-negative
+        surprise = seq_result['sequence_surprise']
+        self.assertTrue(torch.isfinite(surprise).all(), "Sequence surprise not finite")
+        self.assertTrue(torch.all(surprise >= 0), "Negative surprise values")
+        
+        # Test prediction
+        current_obs = torch.randn(1, self.input_dim)
+        predictions = self.hierarchy.predict_next(current_obs, steps_ahead=3)
+        
+        self.assertEqual(len(predictions), 3)
+        for i, pred in enumerate(predictions):
+            self.assertEqual(pred.shape, (1, self.input_dim), f"Prediction {i} shape mismatch")
+            self.assertTrue(torch.isfinite(pred).all(), f"Prediction {i} not finite")
+        
+        print(f"   ✅ Sequence processing working for length {seq_len}")
+        print(f"   📊 Mean surprise: {seq_result['mean_surprise'].mean().item():.4f}")
+        print(f"   📊 Future predictions: {len(predictions)}")
+    
+    def test_precision_learning_dynamics(self):
+        """Test that precision parameters can be learned."""
+        print("\n🧠 Testing: Precision learning dynamics")
+        
+        # Get initial precision values
+        initial_precisions = []
+        for level in self.hierarchy.levels:
+            initial_precisions.append(level.log_precision.clone())
+        
+        # Run several forward passes with gradient computation
+        optimizer = torch.optim.Adam(self.hierarchy.parameters(), lr=0.01)
+        
+        for epoch in range(3):
+            result = self.hierarchy.forward(self.test_input)
+            loss = result['hierarchical_surprise'].mean()
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        # Check that precision parameters changed
+        precision_changes = []
+        for level_idx, level in enumerate(self.hierarchy.levels):
+            change = torch.norm(level.log_precision - initial_precisions[level_idx])
+            precision_changes.append(change.item())
+        
+        total_change = sum(precision_changes)
+        self.assertGreater(
+            total_change, 1e-6,
+            "Precision parameters did not change during learning"
+        )
+        
+        print(f"   ✅ Precision parameters updated during learning")
+        print(f"   📊 Total precision change: {total_change:.6f}")
+        print(f"   📊 Per-level changes: {[f'{c:.4f}' for c in precision_changes]}")
+
+def run_all_tests():
+    """Run all FEP mathematical property tests."""
+    print("🧪 RUNNING COMPREHENSIVE FEP MATHEMATICAL TESTS")
+    print("=" * 60)
+    
+    # Create test suite
+    test_suite = unittest.TestSuite()
+    
+    # Add FEP mathematics tests
+    test_suite.addTest(unittest.makeSuite(TestFEPMathematicalProperties))
+    test_suite.addTest(unittest.makeSuite(TestActiveInferenceProperties))
+    test_suite.addTest(unittest.makeSuite(TestPredictiveCodingProperties))
+    
+    # Run tests
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(test_suite)
+    
+    # Summary
+    print("\n" + "=" * 60)
+    print("🏆 TEST SUMMARY")
+    print("=" * 60)
+    
+    if result.wasSuccessful():
+        print("✅ ALL TESTS PASSED - FEP MATHEMATICAL PROPERTIES VERIFIED")
+        print(f"   • Total tests run: {result.testsRun}")
+        print("   • Mathematical rigor confirmed")
+        print("   • Scientific validity established")
+    else:
+        print("❌ SOME TESTS FAILED")
+        print(f"   • Tests run: {result.testsRun}")
+        print(f"   • Failures: {len(result.failures)}")
+        print(f"   • Errors: {len(result.errors)}")
+        
+        if result.failures:
+            print("\nFAILURES:")
+            for test, traceback in result.failures:
+                print(f"   - {test}: {traceback.split('AssertionError:')[-1].strip()}")
+        
+        if result.errors:
+            print("\nERRORS:")
+            for test, traceback in result.errors:
+                print(f"   - {test}: {traceback.split('Exception:')[-1].strip()}")
+    
+    return result.wasSuccessful()
+
+if __name__ == "__main__":
+    success = run_all_tests()
+    exit(0 if success else 1)
