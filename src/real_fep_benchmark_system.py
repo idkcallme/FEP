@@ -26,8 +26,8 @@ import logging
 
 # Import our real FEP components
 try:
-    from fep_mcm_dual_agent import DualAgentSystem, DualAgentConfig
-    from fep_language_interface import FEPLanguageModel
+    from fep_cognitive_architecture import FEPCognitiveArchitecture
+    from fep_language_interface import FEPLanguageModel, FEPLanguageConfig
     from fep_mathematics import HierarchicalFEPSystem
     REAL_FEP_AVAILABLE = True
     print("✅ Real FEP components available")
@@ -77,16 +77,14 @@ class RealFEPBenchmarkSystem:
     def _initialize_real_components(self):
         """Initialize real FEP components."""
         try:
-            # Create real dual-agent system
-            dual_config = DualAgentConfig(
-                observation_dim=self.config.observation_dim,
-                action_dim=self.config.action_dim,
-                latent_dim=self.config.latent_dim
+            # Create real FEP cognitive architecture
+            self.fep_system = FEPCognitiveArchitecture(
+                state_dim=10,  # Adjust to match text vector size
+                action_dim=10,
+                hierarchy_levels=3
             )
-            self.dual_agent = DualAgentSystem(dual_config)
             
             # Create real language model interface
-            from fep_language_interface import FEPLanguageConfig
             lang_config = FEPLanguageConfig(model_name=self.config.model_name)
             self.language_model = FEPLanguageModel(lang_config)
             
@@ -144,25 +142,40 @@ class RealFEPBenchmarkSystem:
             'processing_time': time.time() - start_time
         }
     
+    def text_to_observation(self, text: str, size: int = 10) -> np.ndarray:
+        """Simple function to convert text to a numerical vector for the AI."""
+        # Convert text to numerical observation vector
+        obs = [ord(c) % 256 / 255.0 for c in text[:size]]
+        if len(obs) < size:
+            obs.extend([0.0] * (size - len(obs)))
+        return np.array(obs)
+
     def _process_question_real_fep(self, question: str) -> Dict[str, Any]:
         """Process a single question through real FEP system."""
-        # Convert text to tensor representation
-        text_embedding = self._text_to_tensor(question)
+        # Convert text to observation vector
+        observation_vector = self.text_to_observation(question, size=10)
         
-        # Process through dual-agent system
-        dual_result = self.dual_agent.process_observation(text_embedding)
+        # Process through FEP cognitive architecture - CORRECT METHOD
+        action, metrics = self.fep_system.perception_action_cycle(observation_vector)
         
         # Process through language model
-        language_result = self.language_model.process_text_with_monitoring(question)
+        language_result = self.language_model.compute_text_free_energy(question)
+        
+        # Extract language model free energy from the nested structure
+        lang_vfe = 0.0
+        if 'sequence_level' in language_result and 'mean_free_energy' in language_result['sequence_level']:
+            lang_vfe = float(language_result['sequence_level']['mean_free_energy'].mean())
+        elif 'token_level' in language_result and 'free_energy' in language_result['token_level']:
+            lang_vfe = float(language_result['token_level']['free_energy'].mean())
         
         # Combine results
         return {
             'question': question,
-            'dual_agent_vfe': float(dual_result['fep_output']['free_energy']),
-            'language_model_vfe': float(language_result['free_energy']),
-            'surprise_level': float(dual_result['mcm_output']['surprise_level']),
-            'chaos_detected': dual_result['mcm_output']['chaos_detected'],
-            'components_used': dual_result['fep_output']['components_used']
+            'fep_system_vfe': float(metrics['free_energy']),
+            'language_model_vfe': lang_vfe,
+            'anomaly_detected': metrics['monitoring_result'].get('anomaly_detected', False),
+            'drift_detected': metrics['monitoring_result'].get('drift_detected', False),
+            'components_used': 'real_fep'
         }
     
     def _text_to_tensor(self, text: str) -> torch.Tensor:
@@ -191,10 +204,10 @@ class RealFEPBenchmarkSystem:
         if not results:
             return {'error': 'No results to analyze'}
         
-        vfe_values = [r['dual_agent_vfe'] for r in results]
+        vfe_values = [r['fep_system_vfe'] for r in results]
         language_vfe_values = [r['language_model_vfe'] for r in results]
         
-        # Classify based on VFE thresholds
+        # Classify based on VFE thresholds  
         high_vfe_count = sum(1 for vfe in vfe_values if vfe > self.config.hallucination_vfe_threshold)
         normal_vfe_count = len(vfe_values) - high_vfe_count
         
@@ -206,8 +219,8 @@ class RealFEPBenchmarkSystem:
             'high_vfe_percentage': (high_vfe_count / len(results)) * 100,
             'potential_hallucinations': high_vfe_count,
             'normal_responses': normal_vfe_count,
-            'chaos_events': sum(1 for r in results if r['chaos_detected']),
-            'average_surprise': np.mean([r['surprise_level'] for r in results]),
+            'anomaly_events': sum(1 for r in results if r['anomaly_detected']),
+            'drift_events': sum(1 for r in results if r['drift_detected']),
             'language_model_vfe_avg': np.mean(language_vfe_values),
             'real_fep_used': self.real_components
         }
@@ -282,7 +295,7 @@ class RealFEPBenchmarkSystem:
         # Overall assessment
         results['system_status'] = {
             'real_fep_components': self.real_components,
-            'dual_agent_available': hasattr(self, 'dual_agent'),
+            'fep_system_available': hasattr(self, 'fep_system'),
             'language_model_available': hasattr(self, 'language_model'),
             'benchmark_quality': 'High' if self.real_components else 'Limited'
         }
@@ -334,10 +347,12 @@ def main():
         
         # Convert numpy types for JSON serialization
         def convert_numpy_types(obj):
-            if isinstance(obj, np.integer):
+            if isinstance(obj, (np.integer, np.int64, np.int32)):
                 return int(obj)
-            elif isinstance(obj, np.floating):
+            elif isinstance(obj, (np.floating, np.float64, np.float32)):
                 return float(obj)
+            elif isinstance(obj, (np.bool_, bool)):
+                return bool(obj)
             elif isinstance(obj, np.ndarray):
                 return obj.tolist()
             elif isinstance(obj, dict):
