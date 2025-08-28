@@ -1,0 +1,173 @@
+{
+  "timestamp": "20250828_025714",
+  "system_info": {
+    "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 16,
+    "memory_total_gb": 15.728324890136719,
+    "torch_version": "2.7.1+cpu",
+    "numpy_version": "1.26.4"
+  },
+  "execution_time": {
+    "architecture_creation_time": 0.0001723399999718822,
+    "perception_action_cycle_time": 0.00013359300000047368,
+    "hierarchical_inference_time": 0.002597836000004463,
+    "active_inference_time": 0.03158350000000307
+  },
+  "profiling": {
+    "profile_saved": true,
+    "top_functions": "         5399 function calls in 0.007 seconds\n\n   Ordered by: cumulative time\n   List reduced from 122 to 20 due to restriction <20>\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n       20    0.000    0.000    0.007    0.000 C:\\Users\\renua\\Downloads\\project alpha\\fep_cognitive_architecture.py:356(perception_action_cycle)\n       20    0.000    0.000    0.003    0.000 C:\\Users\\renua\\Downloads\\project alpha\\fep_cognitive_architecture.py:222(monitor_system)\n       20    0.000    0.000    0.002    0.000 C:\\Users\\renua\\Downloads\\project alpha\\fep_cognitive_architecture.py:110(variational_step)\n      220    0.000    0.000    0.001    0.000 C:\\Users\\renua\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\numpy\\core\\fromnumeric.py:2177(sum)\n       20    0.000    0.000    0.001    0.000 C:\\Users\\renua\\Downloads\\project alpha\\fep_cognitive_architecture.py:141(select_action)\n      177    0.001    0.000    0.001    0.000 C:\\Users\\renua\\AppData\\Local\\Programs\\Pytho"
+  },
+  "memory_usage": {
+    "baseline_memory_mb": 309.33203125,
+    "post_creation_memory_mb": 309.3359375,
+    "creation_memory_increase_mb": 0.00390625,
+    "peak_memory_mb": 309.3515625,
+    "peak_memory_increase_mb": 0.01953125,
+    "memory_hotspots": [
+      {
+        "file": "    performance_metrics = {",
+        "size_mb": 0.011444091796875,
+        "count": 75
+      },
+      {
+        "file": "    np.random.normal(0, 0.1, self.action_dim) for _ in range(5)",
+        "size_mb": 0.0072479248046875,
+        "count": 150
+      },
+      {
+        "file": "    m = zeros((N, M), dtype=dtype, order=order)",
+        "size_mb": 0.0068359375,
+        "count": 16
+      },
+      {
+        "file": "    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)",
+        "size_mb": 0.00469207763671875,
+        "count": 82
+      },
+      {
+        "file": "    ret = ret.dtype.type(ret / rcount)",
+        "size_mb": 0.002288818359375,
+        "count": 100
+      },
+      {
+        "file": "    current_state = {",
+        "size_mb": 0.00152587890625,
+        "count": 25
+      },
+      {
+        "file": "    return {",
+        "size_mb": 0.00146484375,
+        "count": 24
+      },
+      {
+        "file": "    return _methods._mean(a, axis=axis, dtype=dtype,",
+        "size_mb": 0.001373291015625,
+        "count": 12
+      },
+      {
+        "file": "    return _wrapreduction(a, np.add, 'sum', axis, dtype, out, keepdims=keepdims,",
+        "size_mb": 0.00125885009765625,
+        "count": 11
+      },
+      {
+        "file": "    total_likelihood += -np.sum(pred_error.weighted_error ** 2) * 0.5",
+        "size_mb": 0.0011444091796875,
+        "count": 50
+      }
+    ]
+  },
+  "scalability": {
+    "scalability_data": [
+      {
+        "state_dim": 3,
+        "action_dim": 2,
+        "hierarchy_levels": 2,
+        "creation_time_ms": 0.0,
+        "avg_cycle_time_ms": 0.0,
+        "std_cycle_time_ms": 0.0,
+        "complexity_factor": 12
+      },
+      {
+        "state_dim": 5,
+        "action_dim": 3,
+        "hierarchy_levels": 3,
+        "creation_time_ms": 0.0,
+        "avg_cycle_time_ms": 0.0,
+        "std_cycle_time_ms": 0.0,
+        "complexity_factor": 45
+      },
+      {
+        "state_dim": 8,
+        "action_dim": 4,
+        "hierarchy_levels": 3,
+        "creation_time_ms": 0.0,
+        "avg_cycle_time_ms": 0.0,
+        "std_cycle_time_ms": 0.0,
+        "complexity_factor": 96
+      },
+      {
+        "state_dim": 10,
+        "action_dim": 5,
+        "hierarchy_levels": 4,
+        "creation_time_ms": 0.0,
+        "avg_cycle_time_ms": 0.0,
+        "std_cycle_time_ms": 0.0,
+        "complexity_factor": 200
+      },
+      {
+        "state_dim": 15,
+        "action_dim": 7,
+        "hierarchy_levels": 4,
+        "creation_time_ms": 0.0,
+        "avg_cycle_time_ms": 0.0,
+        "std_cycle_time_ms": 0.0,
+        "complexity_factor": 420
+      }
+    ],
+    "complexity_correlation": NaN
+  },
+  "stress_testing": {
+    "stress_cycles_per_second": 8054.595571082289,
+    "stress_total_cycles": 40275,
+    "stress_duration": 5.000251054763794,
+    "extreme_input_results": [
+      {
+        "input_type": "extreme_0",
+        "processing_time_ms": 0.0,
+        "success": true,
+        "free_energy": 1.8423749860784793
+      },
+      {
+        "input_type": "extreme_1",
+        "processing_time_ms": 0.0,
+        "success": true,
+        "free_energy": 24001736.681896064
+      },
+      {
+        "input_type": "extreme_2",
+        "processing_time_ms": 0.0,
+        "success": true,
+        "free_energy": 29038283.371105626
+      },
+      {
+        "input_type": "extreme_3",
+        "processing_time_ms": 0.0,
+        "success": true,
+        "free_energy": 203321.34907283424
+      }
+    ],
+    "memory_stability_mb": 0.08203125
+  },
+  "component_breakdown": {
+    "fep_mathematics_time_ms": 2.733334000004106,
+    "active_inference_time_ms": 37.94176666666924,
+    "mcm_monitoring_time_ms": 0.0
+  },
+  "performance_summary": {
+    "speed_grade": "A+ (Excellent)",
+    "memory_grade": "A+ (Excellent)",
+    "scalability_grade": "D (Needs Improvement)",
+    "stress_grade": "A+ (Excellent)"
+  }
+}
