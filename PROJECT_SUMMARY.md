@@ -105,5 +105,3 @@ FEP Cognitive Architecture
 - **Community contributions** welcome
 
 ---
-
-**This project represents a legitimate breakthrough in computational cognitive science, bridging theoretical neuroscience with practical AI safety applications.**
