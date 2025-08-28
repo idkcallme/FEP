@@ -10,6 +10,7 @@ Perfect for quick validation and continuous integration.
 import sys
 import os
 import numpy as np
+import torch
 import time
 from pathlib import Path
 
@@ -64,17 +65,16 @@ def test_mathematical_components():
         if REAL_FEP_AVAILABLE:
             # Test hierarchical FEP system
             fep_system = HierarchicalFEPSystem(
-                state_dim=4,
                 observation_dim=3,
-                hierarchy_levels=2
+                latent_dims=[8, 4]
             )
             
             # Test basic operations
-            observations = np.random.randn(3)
-            beliefs = fep_system.perceive(observations)
-            free_energy = fep_system.compute_free_energy(beliefs, observations)
+            observations = torch.randn(1, 3)  # Add batch dimension
+            results = fep_system.hierarchical_inference(observations)
+            free_energy = results[0]['free_energy']
             
-            print(f"✅ FEP Mathematics: beliefs shape={beliefs.shape}, free_energy={free_energy:.3f}")
+            print(f"✅ FEP Mathematics: hierarchical inference completed, free_energy={free_energy.item():.3f}")
             
         else:
             print("⚠️ Skipping mathematical tests - components not available")
@@ -93,17 +93,20 @@ def test_active_inference():
     try:
         if REAL_FEP_AVAILABLE:
             # Test active inference agent
-            agent = ActiveInferenceAgent(
-                state_dim=3,
+            from active_inference import ActiveInferenceConfig
+            config = ActiveInferenceConfig(
+                observation_dim=3,
                 action_dim=2,
-                policy_depth=2
+                policy_horizon=2
             )
+            agent = ActiveInferenceAgent(config)
             
-            # Test action selection
-            current_state = np.array([0.1, 0.2, 0.3])
-            action = agent.select_action(current_state)
+            # Test perception and action
+            current_observation = torch.tensor([0.1, 0.2, 0.3])
+            perception_result = agent.perceive(current_observation)
+            action_result = agent.act()
             
-            print(f"✅ Active Inference: selected action={action}")
+            print(f"✅ Active Inference: perception and action completed")
             
         else:
             print("⚠️ Skipping active inference test - components not available")
