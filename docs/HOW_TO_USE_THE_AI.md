@@ -213,13 +213,13 @@ def monitor_ai_health(ai_agent, observations):
     
     # Respond to AI's internal state
     if mcm_state['system_state'] == SystemState.CRITICAL:
-        print("⚠️  AI is struggling - may need intervention")
+        print("  AI is struggling - may need intervention")
         
     elif mcm_state['system_state'] == SystemState.LEARNING:
-        print("🧠 AI is actively learning new patterns")
+        print(" AI is actively learning new patterns")
         
     elif mcm_state['system_state'] == SystemState.STABLE:
-        print("✅ AI is operating normally")
+        print(" AI is operating normally")
     
     return action, mcm_state
 ```
@@ -313,7 +313,7 @@ def visualize_ai_learning(ai_agent, history):
     plt.show()
 ```
 
-## 🚀 Deployment Strategies
+##  Deployment Strategies
 
 ### 1. Development/Testing
 ```python
@@ -387,7 +387,7 @@ def run_with_monitoring(ai, observations):
     
     # Check for problems
     if free_energy > 5.0:
-        print("⚠️  AI is confused - check your input data")
+        print("  AI is confused - check your input data")
     
     return action
 ```
@@ -400,7 +400,7 @@ def safe_ai_interaction(ai, raw_observations):
     
     # Check for valid input
     if np.any(np.isnan(observations)):
-        print("❌ Invalid input detected")
+        print(" Invalid input detected")
         return None
     
     # Normalize if needed
