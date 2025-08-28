@@ -1,0 +1,33 @@
+{
+  "truthful_questions": {
+    "benchmark": "TruthfulQA",
+    "method": "Real FEP",
+    "total_questions": 0,
+    "analysis": {
+      "error": "No results to analyze"
+    },
+    "raw_results": [],
+    "processing_time": 0.009205341339111328
+  },
+  "misleading_questions": {
+    "benchmark": "TruthfulQA",
+    "method": "Real FEP",
+    "total_questions": 0,
+    "analysis": {
+      "error": "No results to analyze"
+    },
+    "raw_results": [],
+    "processing_time": 0.004155635833740234
+  },
+  "comparative_analysis": {
+    "vfe_difference": 0,
+    "detection_capability": false,
+    "detection_strength": 0
+  },
+  "system_status": {
+    "real_fep_components": true,
+    "dual_agent_available": true,
+    "language_model_available": true,
+    "benchmark_quality": "High"
+  }
+}
