@@ -94,8 +94,8 @@ python tests/test_fep_mathematics.py
 | **Core FEP** | Evidence Lower Bound (F ≥ -log p(x)) | ✅  |
 | **Core FEP** | Free Energy Decomposition (F = Accuracy + Complexity) | ✅  |
 | **Active Inference** | Policy Optimization via Expected Free Energy | ✅  |
-| **Predictive Coding** | Hierarchical Prediction with Attention | ✅ V |
-| **Language Integration** | Real Transformer Free Energy Computation | ✅ V |
+| **Predictive Coding** | Hierarchical Prediction with Attention | ✅  |
+| **Language Integration** | Real Transformer Free Energy Computation | ✅  |
 
 ## 🎮 **Interactive Demos**
 
